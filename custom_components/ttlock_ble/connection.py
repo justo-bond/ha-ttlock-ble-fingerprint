@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from ttlock_ble import TTLockClient, TTLockError
+from ttlock_ble import KeyboardPwdType, TTLockClient, TTLockError
 
 from .const import DOMAIN, LOGGER
 
@@ -299,6 +299,62 @@ class TtlockBleConnection:
                 await client.clear_fingerprints()
                 self._fingerprints = []
                 self._broadcast_fingerprints()
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
+    async def async_add_passcode(
+        self,
+        code: str,
+        *,
+        pwd_type: KeyboardPwdType,
+        start_date: str,
+        end_date: str,
+    ) -> None:
+        """Create one keypad passcode on the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                await client.add_passcode(
+                    code,
+                    pwd_type=pwd_type,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
+    async def async_delete_passcode(
+        self,
+        code: str,
+        *,
+        pwd_type: KeyboardPwdType,
+    ) -> None:
+        """Delete one keypad passcode from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                await client.delete_passcode(code, pwd_type=pwd_type)
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
+    async def async_clear_passcodes(self) -> None:
+        """Delete all keypad passcodes from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                await client.clear_passcodes()
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise

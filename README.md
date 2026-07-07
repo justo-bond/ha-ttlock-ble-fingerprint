@@ -46,9 +46,12 @@ Dates are lock-local time in `YYYYMMDDHHmm` or `YYMMDDHHmm` format.
 
 Available services:
 
+- `ttlock_ble.add_passcode`
 - `ttlock_ble.add_fingerprint`
+- `ttlock_ble.delete_passcode`
 - `ttlock_ble.list_fingerprints`
 - `ttlock_ble.update_fingerprint`
+- `ttlock_ble.clear_passcodes`
 - `ttlock_ble.delete_fingerprint`
 - `ttlock_ble.clear_fingerprints`
 

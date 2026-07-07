@@ -1,3 +1,29 @@
+add_passcode:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    passcode:
+      required: true
+      selector:
+        text:
+    passcode_type:
+      default: "period"
+      selector:
+        select:
+          options:
+            - "period"
+            - "permanent"
+    start_date:
+      default: "200001010000"
+      selector:
+        text:
+    end_date:
+      default: "209912312359"
+      selector:
+        text:
+
 add_fingerprint:
   fields:
     lock_mac:
@@ -53,6 +79,31 @@ delete_fingerprint:
       selector:
         text:
     fingerprint_number:
+      required: true
+      selector:
+        text:
+
+delete_passcode:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    passcode:
+      required: true
+      selector:
+        text:
+    passcode_type:
+      default: "period"
+      selector:
+        select:
+          options:
+            - "period"
+            - "permanent"
+
+clear_passcodes:
+  fields:
+    lock_mac:
       required: true
       selector:
         text:
