@@ -1,0 +1,5 @@
+{
+  "name": "TTLock BLE Fingerprint",
+  "domains": ["ttlock_ble"],
+  "render_readme": true
+}

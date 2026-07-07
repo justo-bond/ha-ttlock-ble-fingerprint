@@ -1,0 +1,65 @@
+add_fingerprint:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    start_date:
+      default: "200001010000"
+      selector:
+        text:
+    end_date:
+      default: "209912312359"
+      selector:
+        text:
+    scan_timeout:
+      default: 45
+      selector:
+        number:
+          min: 5
+          max: 180
+          unit_of_measurement: s
+
+list_fingerprints:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+
+update_fingerprint:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    fingerprint_number:
+      required: true
+      selector:
+        text:
+    start_date:
+      default: "200001010000"
+      selector:
+        text:
+    end_date:
+      default: "209912312359"
+      selector:
+        text:
+
+delete_fingerprint:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    fingerprint_number:
+      required: true
+      selector:
+        text:
+
+clear_fingerprints:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:

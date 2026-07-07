@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+/tmp/
+*.log
+.DS_Store
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+/resources/
+/operation_log_*.txt
