@@ -64,8 +64,17 @@
             }
         },
         "button": {
+            "add_passcode": {
+                "name": "Add passcode"
+            },
             "add_fingerprint": {
                 "name": "Add fingerprint"
+            },
+            "clear_passcodes": {
+                "name": "Clear passcodes"
+            },
+            "delete_passcode": {
+                "name": "Delete passcode"
             },
             "refresh_fingerprints": {
                 "name": "Refresh fingerprints"
@@ -98,6 +107,22 @@
             },
             "fingerprints_count": {
                 "name": "Fingerprints"
+            }
+        },
+        "select": {
+            "passcode_type": {
+                "name": "Passcode type"
+            }
+        },
+        "text": {
+            "passcode_end_date": {
+                "name": "Passcode end"
+            },
+            "passcode_start_date": {
+                "name": "Passcode start"
+            },
+            "passcode_value": {
+                "name": "Passcode"
             }
         }
     }

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from homeassistant.components.button import ButtonEntity
 from homeassistant.exceptions import HomeAssistantError
 
-from ttlock_ble import TTLockError
+from ttlock_ble import KeyboardPwdType, TTLockError
 
 from .entity import TtlockBleEntity
 from .services import DEFAULT_END_DATE, DEFAULT_SCAN_TIMEOUT, DEFAULT_START_DATE
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from .connection import TtlockBleConnection
     from .coordinator import TtlockBleDataUpdateCoordinator
-    from .data import TtlockBleConfigEntry
+    from .data import TtlockBleConfigEntry, TtlockBlePasscodeDraft
 
 
 async def async_setup_entry(
@@ -28,13 +28,17 @@ async def async_setup_entry(
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create fingerprint management buttons per lock."""
+    """Create fingerprint and passcode management buttons per lock."""
     data = entry.runtime_data
     entities: list[ButtonEntity] = []
     for key in data.virtual_keys:
         connection = data.connections[key.lockMac]
+        draft = data.passcode_drafts[key.lockMac]
         entities.extend(
             [
+                TtlockBleAddPasscodeButton(data.coordinator, key, connection, draft),
+                TtlockBleDeletePasscodeButton(data.coordinator, key, connection, draft),
+                TtlockBleClearPasscodesButton(data.coordinator, key, connection),
                 TtlockBleAddFingerprintButton(data.coordinator, key, connection),
                 TtlockBleRefreshFingerprintsButton(data.coordinator, key, connection),
             ],
@@ -56,6 +60,91 @@ class TtlockBleFingerprintButton(TtlockBleEntity, ButtonEntity):
         """Bind the button to its lock connection."""
         super().__init__(coordinator, key)
         self._connection = connection
+
+
+class TtlockBlePasscodeButton(TtlockBleFingerprintButton):
+    """Base class for passcode actions tied to a shared draft."""
+
+    _attr_icon = "mdi:form-textbox-password"
+
+    def __init__(
+        self,
+        coordinator: TtlockBleDataUpdateCoordinator,
+        key: VirtualKey,
+        connection: TtlockBleConnection,
+        draft: TtlockBlePasscodeDraft,
+    ) -> None:
+        super().__init__(coordinator, key, connection)
+        self._draft = draft
+
+    def _ensure_code(self) -> str:
+        code = self._draft.code.strip()
+        if not code:
+            raise HomeAssistantError("Enter a passcode in the device field first")
+        return code
+
+    def _pwd_type(self) -> KeyboardPwdType:
+        return {
+            "period": KeyboardPwdType.PERIOD,
+            "permanent": KeyboardPwdType.PERMANENT,
+        }[self._draft.passcode_type]
+
+
+class TtlockBleAddPasscodeButton(TtlockBlePasscodeButton):
+    """Create a keypad passcode from the current draft values."""
+
+    _attr_translation_key = "add_passcode"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._key.lockMac}_add_passcode"
+
+    async def async_press(self) -> None:
+        try:
+            await self._connection.async_add_passcode(
+                self._ensure_code(),
+                pwd_type=self._pwd_type(),
+                start_date=self._draft.start_date,
+                end_date=self._draft.end_date,
+            )
+        except TTLockError as exc:
+            raise HomeAssistantError(str(exc)) from exc
+
+
+class TtlockBleDeletePasscodeButton(TtlockBlePasscodeButton):
+    """Delete the currently entered keypad passcode."""
+
+    _attr_translation_key = "delete_passcode"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._key.lockMac}_delete_passcode"
+
+    async def async_press(self) -> None:
+        try:
+            await self._connection.async_delete_passcode(
+                self._ensure_code(),
+                pwd_type=self._pwd_type(),
+            )
+        except TTLockError as exc:
+            raise HomeAssistantError(str(exc)) from exc
+
+
+class TtlockBleClearPasscodesButton(TtlockBleFingerprintButton):
+    """Delete all keypad passcodes from the lock."""
+
+    _attr_translation_key = "clear_passcodes"
+    _attr_icon = "mdi:lock-reset"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._key.lockMac}_clear_passcodes"
+
+    async def async_press(self) -> None:
+        try:
+            await self._connection.async_clear_passcodes()
+        except TTLockError as exc:
+            raise HomeAssistantError(str(exc)) from exc
 
 
 class TtlockBleAddFingerprintButton(TtlockBleFingerprintButton):

@@ -64,8 +64,17 @@
             }
         },
         "button": {
+            "add_passcode": {
+                "name": "Adicionar senha"
+            },
             "add_fingerprint": {
                 "name": "Adicionar impressão digital"
+            },
+            "clear_passcodes": {
+                "name": "Limpar senhas"
+            },
+            "delete_passcode": {
+                "name": "Excluir senha"
             },
             "refresh_fingerprints": {
                 "name": "Atualizar impressões digitais"
@@ -98,6 +107,22 @@
             },
             "fingerprints_count": {
                 "name": "Impressões digitais"
+            }
+        },
+        "select": {
+            "passcode_type": {
+                "name": "Tipo de senha"
+            }
+        },
+        "text": {
+            "passcode_end_date": {
+                "name": "Fim da senha"
+            },
+            "passcode_start_date": {
+                "name": "Início da senha"
+            },
+            "passcode_value": {
+                "name": "Senha"
             }
         }
     }

@@ -18,11 +18,22 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class TtlockBlePasscodeDraft:
+    """Mutable passcode form values shared by device-management entities."""
+
+    code: str = ""
+    start_date: str = "200001010000"
+    end_date: str = "209912312359"
+    passcode_type: str = "period"
+
+
+@dataclass
 class TtlockBleData:
     """State stored on `entry.runtime_data` for the TTLock BLE integration."""
 
     keys: list[TtlockBleStoredKey]
     virtual_keys: list[VirtualKey]
     connections: dict[str, TtlockBleConnection]
+    passcode_drafts: dict[str, TtlockBlePasscodeDraft]
     coordinator: TtlockBleDataUpdateCoordinator
     bluetooth_unsubs: list[CALLBACK_TYPE]

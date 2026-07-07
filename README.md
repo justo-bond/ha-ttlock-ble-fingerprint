@@ -59,9 +59,14 @@ Available services:
 
 The integration also adds per-lock entities:
 
+- `button.*_add_passcode`: create a keypad code from the passcode fields on the device.
+- `button.*_delete_passcode`: delete the currently entered keypad code.
+- `button.*_clear_passcodes`: remove all keypad codes from the lock.
 - `button.*_add_fingerprint`: start enrollment with the default validity window.
 - `button.*_refresh_fingerprints`: refresh the fingerprint list from the lock.
 - `sensor.*_fingerprints`: cached fingerprint count and fingerprint details.
+- `text.*_passcode`, `text.*_passcode_start`, `text.*_passcode_end`: editable keypad-code form fields.
+- `select.*_passcode_type`: choose `period` or `permanent` for the keypad code.
 
 ## Safety
 

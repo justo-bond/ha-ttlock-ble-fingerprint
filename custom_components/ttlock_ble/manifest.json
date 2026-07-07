@@ -14,5 +14,5 @@
   "requirements": [
     "ttlock-ble@git+https://github.com/justo-bond/ha-ttlock-ble-fingerprint.git@main#subdirectory=ttlock-ble"
   ],
-  "version": "3.4.0"
+  "version": "3.5.0"
 }

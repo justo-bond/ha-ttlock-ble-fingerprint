@@ -18,7 +18,7 @@ from ttlock_ble import VirtualKey
 from .connection import TtlockBleConnection
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS
 from .coordinator import TtlockBleDataUpdateCoordinator
-from .data import TtlockBleData
+from .data import TtlockBleData, TtlockBlePasscodeDraft
 from .services import async_setup_services
 
 if TYPE_CHECKING:
@@ -39,7 +39,9 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.EVENT,
     Platform.LOCK,
+    Platform.SELECT,
     Platform.SENSOR,
+    Platform.TEXT,
 ]
 
 
@@ -78,6 +80,9 @@ async def async_setup_entry(
         keys=stored_keys,
         virtual_keys=virtual_keys,
         connections=connections,
+        passcode_drafts={
+            key.lockMac: TtlockBlePasscodeDraft() for key in virtual_keys
+        },
         coordinator=coordinator,
         bluetooth_unsubs=bluetooth_unsubs,
     )
