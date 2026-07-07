@@ -52,6 +52,14 @@ Available services:
 - `ttlock_ble.delete_fingerprint`
 - `ttlock_ble.clear_fingerprints`
 
+## Device entities
+
+The integration also adds per-lock entities:
+
+- `button.*_add_fingerprint`: start enrollment with the default validity window.
+- `button.*_refresh_fingerprints`: refresh the fingerprint list from the lock.
+- `sensor.*_fingerprints`: cached fingerprint count and fingerprint details.
+
 ## Safety
 
 This is experimental and has not yet been validated on every lock model. Test near

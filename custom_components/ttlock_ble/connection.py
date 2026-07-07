@@ -54,6 +54,11 @@ def connection_signal(mac: str) -> str:
     return f"{DOMAIN}_connection_{mac.lower()}"
 
 
+def fingerprint_signal(mac: str) -> str:
+    """Dispatcher signal that carries the cached fingerprint list for `mac`."""
+    return f"{DOMAIN}_fingerprints_{mac.lower()}"
+
+
 class TtlockBleConnection:
     """Maintain a long-lived BLE session with one TTLock lock."""
 
@@ -68,11 +73,17 @@ class TtlockBleConnection:
         self._disconnected = asyncio.Event()
         self._cooldown_until: float = 0.0
         self._seen_records: set[int] = set()
+        self._fingerprints: list[Fingerprint] | None = None
 
     @property
     def key(self) -> VirtualKey:
         """Return the `VirtualKey` this connection wraps."""
         return self._key
+
+    @property
+    def fingerprints(self) -> list[Fingerprint] | None:
+        """Return the last fingerprint list read from the lock, if known."""
+        return self._fingerprints
 
     @property
     def is_connected(self) -> bool:
@@ -199,7 +210,7 @@ class TtlockBleConnection:
                 msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
                 raise TTLockError(msg)
             try:
-                return await client.add_fingerprint(
+                fingerprint = await client.add_fingerprint(
                     start_date=start_date,
                     end_date=end_date,
                     scan_timeout=scan_timeout,
@@ -207,6 +218,17 @@ class TtlockBleConnection:
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
+            if self._fingerprints is not None:
+                self._fingerprints = [
+                    item
+                    for item in self._fingerprints
+                    if item.fingerprint_number != fingerprint.fingerprint_number
+                ]
+                self._fingerprints.append(fingerprint)
+                self._broadcast_fingerprints()
+            with contextlib.suppress(TTLockError):
+                await self._async_refresh_fingerprints_locked(client)
+            return fingerprint
 
     async def async_get_fingerprints(self) -> list[Fingerprint]:
         """Read fingerprint credentials from the lock."""
@@ -216,7 +238,7 @@ class TtlockBleConnection:
                 msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
                 raise TTLockError(msg)
             try:
-                return await client.get_fingerprints()
+                return await self._async_refresh_fingerprints_locked(client)
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
@@ -240,6 +262,8 @@ class TtlockBleConnection:
                     start_date=start_date,
                     end_date=end_date,
                 )
+                if self._fingerprints is not None:
+                    await self._async_refresh_fingerprints_locked(client)
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
@@ -253,6 +277,13 @@ class TtlockBleConnection:
                 raise TTLockError(msg)
             try:
                 await client.delete_fingerprint(fingerprint_number)
+                if self._fingerprints is not None:
+                    self._fingerprints = [
+                        item
+                        for item in self._fingerprints
+                        if item.fingerprint_number != fingerprint_number
+                    ]
+                    self._broadcast_fingerprints()
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
@@ -266,9 +297,20 @@ class TtlockBleConnection:
                 raise TTLockError(msg)
             try:
                 await client.clear_fingerprints()
+                self._fingerprints = []
+                self._broadcast_fingerprints()
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
+
+    async def _async_refresh_fingerprints_locked(
+        self,
+        client: TTLockClient,
+    ) -> list[Fingerprint]:
+        """Read fingerprints, cache them, and notify HA entities."""
+        self._fingerprints = await client.get_fingerprints()
+        self._broadcast_fingerprints()
+        return self._fingerprints
 
     async def _async_run_command(self, action: str) -> None:
         """
@@ -347,6 +389,14 @@ class TtlockBleConnection:
             self._hass,
             connection_signal(self._key.lockMac),
             connected,
+        )
+
+    def _broadcast_fingerprints(self) -> None:
+        """Notify subscribers that the cached fingerprint list changed."""
+        async_dispatcher_send(
+            self._hass,
+            fingerprint_signal(self._key.lockMac),
+            self._fingerprints,
         )
 
     def _on_event(self, event: LockEvent) -> None:

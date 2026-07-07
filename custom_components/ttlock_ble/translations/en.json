@@ -63,6 +63,14 @@
                 "name": "Available"
             }
         },
+        "button": {
+            "add_fingerprint": {
+                "name": "Add fingerprint"
+            },
+            "refresh_fingerprints": {
+                "name": "Refresh fingerprints"
+            }
+        },
         "event": {
             "log": {
                 "name": "Log",
@@ -87,6 +95,9 @@
         "sensor": {
             "battery": {
                 "name": "Battery"
+            },
+            "fingerprints_count": {
+                "name": "Fingerprints"
             }
         }
     }

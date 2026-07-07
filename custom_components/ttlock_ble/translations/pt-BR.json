@@ -63,6 +63,14 @@
                 "name": "Disponível"
             }
         },
+        "button": {
+            "add_fingerprint": {
+                "name": "Adicionar impressão digital"
+            },
+            "refresh_fingerprints": {
+                "name": "Atualizar impressões digitais"
+            }
+        },
         "event": {
             "log": {
                 "name": "Registro",
@@ -87,6 +95,9 @@
         "sensor": {
             "battery": {
                 "name": "Bateria"
+            },
+            "fingerprints_count": {
+                "name": "Impressões digitais"
             }
         }
     }
