@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .entity import TtlockBleEntity
-from .services import DEFAULT_END_DATE, DEFAULT_START_DATE
+from .services import DEFAULT_PASSCODE_END_DATE, DEFAULT_PASSCODE_START_DATE
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -126,7 +126,9 @@ class TtlockBlePasscodeStartText(TtlockBlePasscodeText):
         self.async_write_ha_state()
 
     def _restore_value(self, value: str) -> None:
-        self._draft.start_date = value if _DATE_RE.fullmatch(value) else DEFAULT_START_DATE
+        self._draft.start_date = (
+            value if _DATE_RE.fullmatch(value) else DEFAULT_PASSCODE_START_DATE
+        )
 
 
 class TtlockBlePasscodeEndText(TtlockBlePasscodeText):
@@ -153,4 +155,6 @@ class TtlockBlePasscodeEndText(TtlockBlePasscodeText):
         self.async_write_ha_state()
 
     def _restore_value(self, value: str) -> None:
-        self._draft.end_date = value if _DATE_RE.fullmatch(value) else DEFAULT_END_DATE
+        self._draft.end_date = (
+            value if _DATE_RE.fullmatch(value) else DEFAULT_PASSCODE_END_DATE
+        )

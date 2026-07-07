@@ -68,6 +68,9 @@ The integration also adds per-lock entities:
 - `text.*_passcode`, `text.*_passcode_start`, `text.*_passcode_end`: editable keypad-code form fields.
 - `select.*_passcode_type`: choose `period` or `permanent` for the keypad code.
 
+Passcode dates use `YYMMDDHHmm` on the wire. The integration also accepts
+`YYYYMMDDHHmm` and shortens it automatically.
+
 ## Safety
 
 This is experimental and has not yet been validated on every lock model. Test near

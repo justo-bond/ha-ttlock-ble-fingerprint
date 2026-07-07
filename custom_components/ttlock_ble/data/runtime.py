@@ -22,8 +22,8 @@ class TtlockBlePasscodeDraft:
     """Mutable passcode form values shared by device-management entities."""
 
     code: str = ""
-    start_date: str = "200001010000"
-    end_date: str = "209912312359"
+    start_date: str = "0001311400"
+    end_date: str = "9912311400"
     passcode_type: str = "period"
 
 

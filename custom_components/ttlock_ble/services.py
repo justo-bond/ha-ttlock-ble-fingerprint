@@ -39,20 +39,23 @@ DEFAULT_END_DATE = "209912312359"
 DEFAULT_PASSCODE_TYPE = "period"
 DEFAULT_SCAN_TIMEOUT = 45.0
 DEFAULT_START_DATE = "200001010000"
+DEFAULT_PASSCODE_END_DATE = "9912311400"
+DEFAULT_PASSCODE_START_DATE = "0001311400"
 
 _DATE = vol.All(str, vol.Match(r"^\d{10}(\d{2})?$"))
 _FINGERPRINT_NUMBER = vol.All(str, vol.Match(r"^\d+$"))
 _LOCK_SCHEMA = {vol.Required(ATTR_LOCK_MAC): str}
 _PASSCODE = vol.All(str, vol.Match(r"^\d{4,9}$"))
 _PASSCODE_TYPE = vol.In({"permanent", "period"})
+_PASSCODE_DATE = vol.All(str, vol.Match(r"^\d{10}(\d{2})?$"))
 
 ADD_PASSCODE_SCHEMA = vol.Schema(
     {
         **_LOCK_SCHEMA,
         vol.Required(ATTR_PASSCODE): _PASSCODE,
         vol.Optional(ATTR_PASSCODE_TYPE, default=DEFAULT_PASSCODE_TYPE): _PASSCODE_TYPE,
-        vol.Optional(ATTR_START_DATE, default=DEFAULT_START_DATE): _DATE,
-        vol.Optional(ATTR_END_DATE, default=DEFAULT_END_DATE): _DATE,
+        vol.Optional(ATTR_START_DATE, default=DEFAULT_PASSCODE_START_DATE): _PASSCODE_DATE,
+        vol.Optional(ATTR_END_DATE, default=DEFAULT_PASSCODE_END_DATE): _PASSCODE_DATE,
     },
 )
 
@@ -99,6 +102,13 @@ def _passcode_type(value: str) -> KeyboardPwdType:
         "permanent": KeyboardPwdType.PERMANENT,
         "period": KeyboardPwdType.PERIOD,
     }[value]
+
+
+def _passcode_date(value: str) -> str:
+    """Normalize passcode dates to TTLock's YYMMDDHHmm wire format."""
+    if len(value) == 12:
+        return value[2:]
+    return value
 
 
 def async_setup_services(hass: HomeAssistant) -> None:
@@ -211,8 +221,8 @@ async def _async_add_passcode(
         await connection.async_add_passcode(
             call.data[ATTR_PASSCODE],
             pwd_type=passcode_type,
-            start_date=call.data[ATTR_START_DATE],
-            end_date=call.data[ATTR_END_DATE],
+            start_date=_passcode_date(call.data[ATTR_START_DATE]),
+            end_date=_passcode_date(call.data[ATTR_END_DATE]),
         )
     except TTLockError as exc:
         raise HomeAssistantError(str(exc)) from exc
@@ -220,8 +230,8 @@ async def _async_add_passcode(
         "passcode": {
             "code": call.data[ATTR_PASSCODE],
             "type": call.data[ATTR_PASSCODE_TYPE],
-            "start_date": call.data[ATTR_START_DATE],
-            "end_date": call.data[ATTR_END_DATE],
+            "start_date": _passcode_date(call.data[ATTR_START_DATE]),
+            "end_date": _passcode_date(call.data[ATTR_END_DATE]),
         },
     }
 

@@ -16,11 +16,11 @@ add_passcode:
             - "period"
             - "permanent"
     start_date:
-      default: "200001010000"
+      default: "0001311400"
       selector:
         text:
     end_date:
-      default: "209912312359"
+      default: "9912311400"
       selector:
         text:
 
