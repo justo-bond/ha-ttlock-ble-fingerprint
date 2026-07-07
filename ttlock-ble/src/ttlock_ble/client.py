@@ -374,6 +374,7 @@ class TTLockClient:
         `YYMMDDHHmm` strings.
         """
         async with self._command_lock:
+            await self._admin_login()
             await self._keyboard_password_exchange(
                 cmd.payload_passcode_add(int(pwd_type), code, start_date, end_date),
                 "add_passcode",
@@ -387,6 +388,7 @@ class TTLockClient:
     ) -> None:
         """Remove a single keypad passcode previously installed via `add_passcode`."""
         async with self._command_lock:
+            await self._admin_login()
             await self._keyboard_password_exchange(
                 cmd.payload_passcode_delete(int(pwd_type), code),
                 "delete_passcode",
@@ -395,6 +397,7 @@ class TTLockClient:
     async def clear_passcodes(self) -> None:
         """Wipe ALL keypad passcodes from the lock. There's no undo."""
         async with self._command_lock:
+            await self._admin_login()
             await self._keyboard_password_exchange(
                 cmd.payload_passcode_clear(),
                 "clear_passcodes",
