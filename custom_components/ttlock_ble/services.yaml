@@ -53,6 +53,43 @@ list_fingerprints:
       selector:
         text:
 
+list_passcodes:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+
+update_passcode:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    old_passcode:
+      required: true
+      selector:
+        text:
+    new_passcode:
+      required: true
+      selector:
+        text:
+    passcode_type:
+      default: "period"
+      selector:
+        select:
+          options:
+            - "period"
+            - "permanent"
+    start_date:
+      default: "0001311400"
+      selector:
+        text:
+    end_date:
+      default: "9912311400"
+      selector:
+        text:
+
 update_fingerprint:
   fields:
     lock_mac:

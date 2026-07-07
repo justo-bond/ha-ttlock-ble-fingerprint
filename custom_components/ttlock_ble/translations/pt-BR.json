@@ -76,6 +76,9 @@
             "delete_passcode": {
                 "name": "Excluir senha"
             },
+            "refresh_passcodes": {
+                "name": "Atualizar senhas"
+            },
             "refresh_fingerprints": {
                 "name": "Atualizar impressões digitais"
             }
@@ -107,6 +110,9 @@
             },
             "fingerprints_count": {
                 "name": "Impressões digitais"
+            },
+            "passcodes_count": {
+                "name": "Senhas"
             }
         },
         "select": {

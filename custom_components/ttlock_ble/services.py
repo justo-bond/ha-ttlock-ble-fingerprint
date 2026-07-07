@@ -13,7 +13,7 @@ from .const import DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
-    from ttlock_ble.models import Fingerprint
+    from ttlock_ble.models import Fingerprint, Passcode
 
     from .connection import TtlockBleConnection
     from .data import TtlockBleConfigEntry
@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 ATTR_END_DATE = "end_date"
 ATTR_FINGERPRINT_NUMBER = "fingerprint_number"
 ATTR_LOCK_MAC = "lock_mac"
+ATTR_NEW_PASSCODE = "new_passcode"
+ATTR_OLD_PASSCODE = "old_passcode"
 ATTR_PASSCODE = "passcode"
 ATTR_PASSCODE_TYPE = "passcode_type"
 ATTR_SCAN_TIMEOUT = "scan_timeout"
@@ -32,7 +34,9 @@ SERVICE_CLEAR_PASSCODES = "clear_passcodes"
 SERVICE_CLEAR_FINGERPRINTS = "clear_fingerprints"
 SERVICE_DELETE_PASSCODE = "delete_passcode"
 SERVICE_DELETE_FINGERPRINT = "delete_fingerprint"
+SERVICE_LIST_PASSCODES = "list_passcodes"
 SERVICE_LIST_FINGERPRINTS = "list_fingerprints"
+SERVICE_UPDATE_PASSCODE = "update_passcode"
 SERVICE_UPDATE_FINGERPRINT = "update_fingerprint"
 
 DEFAULT_END_DATE = "209912312359"
@@ -87,11 +91,22 @@ DELETE_FINGERPRINT_SCHEMA = vol.Schema(
 )
 CLEAR_PASSCODES_SCHEMA = vol.Schema(_LOCK_SCHEMA)
 CLEAR_FINGERPRINTS_SCHEMA = vol.Schema(_LOCK_SCHEMA)
+LIST_PASSCODES_SCHEMA = vol.Schema(_LOCK_SCHEMA)
 DELETE_PASSCODE_SCHEMA = vol.Schema(
     {
         **_LOCK_SCHEMA,
         vol.Required(ATTR_PASSCODE): _PASSCODE,
         vol.Optional(ATTR_PASSCODE_TYPE, default=DEFAULT_PASSCODE_TYPE): _PASSCODE_TYPE,
+    },
+)
+UPDATE_PASSCODE_SCHEMA = vol.Schema(
+    {
+        **_LOCK_SCHEMA,
+        vol.Required(ATTR_OLD_PASSCODE): _PASSCODE,
+        vol.Required(ATTR_NEW_PASSCODE): _PASSCODE,
+        vol.Optional(ATTR_PASSCODE_TYPE, default=DEFAULT_PASSCODE_TYPE): _PASSCODE_TYPE,
+        vol.Optional(ATTR_START_DATE, default=DEFAULT_PASSCODE_START_DATE): _PASSCODE_DATE,
+        vol.Optional(ATTR_END_DATE, default=DEFAULT_PASSCODE_END_DATE): _PASSCODE_DATE,
     },
 )
 
@@ -122,8 +137,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def async_add_fingerprint(call: ServiceCall) -> dict[str, object]:
         return await _async_add_fingerprint(hass, call)
 
+    async def async_list_passcodes(call: ServiceCall) -> dict[str, object]:
+        return await _async_list_passcodes(hass, call)
+
     async def async_list_fingerprints(call: ServiceCall) -> dict[str, object]:
         return await _async_list_fingerprints(hass, call)
+
+    async def async_update_passcode(call: ServiceCall) -> None:
+        await _async_update_passcode(hass, call)
 
     async def async_update_fingerprint(call: ServiceCall) -> None:
         await _async_update_fingerprint(hass, call)
@@ -156,10 +177,23 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_LIST_PASSCODES,
+        async_list_passcodes,
+        schema=LIST_PASSCODES_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_LIST_FINGERPRINTS,
         async_list_fingerprints,
         schema=LIST_FINGERPRINTS_SCHEMA,
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_PASSCODE,
+        async_update_passcode,
+        schema=UPDATE_PASSCODE_SCHEMA,
     )
     hass.services.async_register(
         DOMAIN,
@@ -249,6 +283,19 @@ async def _async_list_fingerprints(
     return {"fingerprints": [_fingerprint_response(item) for item in fingerprints]}
 
 
+async def _async_list_passcodes(
+    hass: HomeAssistant,
+    call: ServiceCall,
+) -> dict[str, object]:
+    """Handle `ttlock_ble.list_passcodes`."""
+    connection = _connection_from_call(hass, call)
+    try:
+        passcodes = await connection.async_get_passcodes()
+    except TTLockError as exc:
+        raise HomeAssistantError(str(exc)) from exc
+    return {"passcodes": [_passcode_response(item) for item in passcodes]}
+
+
 async def _async_update_fingerprint(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle `ttlock_ble.update_fingerprint`."""
     connection = _connection_from_call(hass, call)
@@ -257,6 +304,22 @@ async def _async_update_fingerprint(hass: HomeAssistant, call: ServiceCall) -> N
             call.data[ATTR_FINGERPRINT_NUMBER],
             start_date=call.data[ATTR_START_DATE],
             end_date=call.data[ATTR_END_DATE],
+        )
+    except TTLockError as exc:
+        raise HomeAssistantError(str(exc)) from exc
+
+
+async def _async_update_passcode(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle `ttlock_ble.update_passcode`."""
+    connection = _connection_from_call(hass, call)
+    passcode_type = _passcode_type(call.data[ATTR_PASSCODE_TYPE])
+    try:
+        await connection.async_update_passcode(
+            call.data[ATTR_OLD_PASSCODE],
+            call.data[ATTR_NEW_PASSCODE],
+            pwd_type=passcode_type,
+            start_date=_passcode_date(call.data[ATTR_START_DATE]),
+            end_date=_passcode_date(call.data[ATTR_END_DATE]),
         )
     except TTLockError as exc:
         raise HomeAssistantError(str(exc)) from exc
@@ -327,3 +390,8 @@ def _connection_from_call(
 def _fingerprint_response(fingerprint: Fingerprint) -> dict[str, str | None]:
     """Convert a fingerprint model to a service response payload."""
     return fingerprint.to_dict()
+
+
+def _passcode_response(passcode: Passcode) -> dict[str, str | None]:
+    """Convert a passcode model to a service response payload."""
+    return passcode.to_dict()

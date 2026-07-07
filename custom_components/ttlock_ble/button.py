@@ -40,6 +40,7 @@ async def async_setup_entry(
                 TtlockBleAddPasscodeButton(data.coordinator, key, connection, draft),
                 TtlockBleDeletePasscodeButton(data.coordinator, key, connection, draft),
                 TtlockBleClearPasscodesButton(data.coordinator, key, connection),
+                TtlockBleRefreshPasscodesButton(data.coordinator, key, connection),
                 TtlockBleAddFingerprintButton(data.coordinator, key, connection),
                 TtlockBleRefreshFingerprintsButton(data.coordinator, key, connection),
             ],
@@ -158,6 +159,23 @@ class TtlockBleClearPasscodesButton(TtlockBleFingerprintButton):
     async def async_press(self) -> None:
         try:
             await self._connection.async_clear_passcodes()
+        except TTLockError as exc:
+            raise HomeAssistantError(str(exc)) from exc
+
+
+class TtlockBleRefreshPasscodesButton(TtlockBleFingerprintButton):
+    """Refresh the cached passcode list from the lock."""
+
+    _attr_translation_key = "refresh_passcodes"
+    _attr_icon = "mdi:refresh"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._key.lockMac}_refresh_passcodes"
+
+    async def async_press(self) -> None:
+        try:
+            await self._connection.async_get_passcodes()
         except TTLockError as exc:
             raise HomeAssistantError(str(exc)) from exc
 

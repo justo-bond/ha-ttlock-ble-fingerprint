@@ -7,6 +7,7 @@ from .fingerprint import Fingerprint
 from .lock_event import LockEvent
 from .lock_version import LockVersion
 from .log_entry import LogEntry
+from .passcode import Passcode
 from .site_info import SiteInfo
 from .virtual_key import VirtualKey
 
@@ -16,6 +17,7 @@ __all__ = [
     "LockEvent",
     "LockVersion",
     "LogEntry",
+    "Passcode",
     "SiteInfo",
     "VirtualKey",
 ]

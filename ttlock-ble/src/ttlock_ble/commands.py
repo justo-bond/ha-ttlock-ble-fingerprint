@@ -27,6 +27,7 @@ CMD_GET_AES_KEY = 0x19
 CMD_RESPONSE = 0x54
 CMD_AUTO_LOCK_MANAGE = 0x36
 CMD_MANAGE_KEYBOARD_PASSWORD = 0x03
+CMD_GET_KEYBOARD_PASSWORDS = 0x05
 CMD_FR_MANAGE = 0x06
 CMD_GET_OPERATE_LOG = 0x25
 
@@ -386,6 +387,37 @@ def payload_passcode_clear() -> bytes:
     return bytes([PwdOperateType.CLEAR])
 
 
+def payload_passcode_update(
+    pwd_type: int,
+    old_code: str,
+    new_code: str,
+    start_date: str = "0001311400",
+    end_date: str = "9912311400",
+) -> bytes:
+    """COMM_MANAGE_KEYBOARD_PASSWORD with op=MODIFY (5)."""
+    from .constants import PwdOperateType
+
+    _check_passcode(old_code)
+    _check_passcode(new_code)
+    out = bytearray()
+    out.append(PwdOperateType.MODIFY)
+    out.append(pwd_type)
+    out.append(len(old_code))
+    out.extend(old_code.encode("ascii"))
+    out.append(len(new_code))
+    out.extend(new_code.encode("ascii"))
+    out.extend(_date5(start_date))
+    out.extend(_date5(end_date))
+    return bytes(out)
+
+
+def payload_passcode_list(sequence: int = 0) -> bytes:
+    """COMM_PWD_LIST paged request cursor."""
+    if not 0 <= sequence <= 0xFFFF:
+        raise ValueError(f"sequence out of range [0, 65535]: {sequence}")
+    return sequence.to_bytes(2, "big", signed=False)
+
+
 def payload_fingerprint_search(sequence: int = 0) -> bytes:
     """COMM_FR_MANAGE with op=FR_SEARCH."""
     if not 0 <= sequence <= 0xFFFF:
@@ -486,6 +518,76 @@ def parse_fingerprint_search_response(plaintext: bytes) -> tuple[list[object], i
         )
         idx += 16
     return fingerprints, sequence, battery
+
+
+def parse_passcode_list_response(plaintext: bytes) -> tuple[list[object], int]:
+    """Decode COMM_PWD_LIST into `(items, next_sequence)`."""
+    from .constants import KeyboardPwdType
+    from .models import Passcode
+
+    echo, status, data = parse_response_status(plaintext)
+    if echo != CMD_GET_KEYBOARD_PASSWORDS:
+        raise RuntimeError(
+            f"unexpected cmd echo 0x{echo:02x} (want 0x{CMD_GET_KEYBOARD_PASSWORDS:02x})"
+        )
+    if status != RESPONSE_SUCCESS:
+        raise RuntimeError(
+            f"keyboard password list FAILED: status={status:#x} err={data.hex()}"
+        )
+    if len(data) < 2:
+        return [], -1
+    total_len = int.from_bytes(data[:2], "big", signed=False)
+    if total_len == 0:
+        return [], -1
+    if len(data) < 4:
+        raise ValueError(f"keyboard password list header too short: {plaintext.hex()}")
+    sequence = int.from_bytes(data[2:4], "big", signed=True)
+    index = 4
+    items: list[object] = []
+    while index < len(data):
+        index += 1  # row length; ignored in the upstream TS SDK
+        if index + 2 > len(data):
+            break
+        pwd_type = KeyboardPwdType(data[index])
+        index += 1
+        new_len = data[index]
+        index += 1
+        if index + new_len > len(data):
+            raise ValueError(f"keyboard password new code truncated: {plaintext.hex()}")
+        new_code = data[index : index + new_len].decode("ascii", errors="replace")
+        index += new_len
+        if index >= len(data):
+            raise ValueError(f"keyboard password code length missing: {plaintext.hex()}")
+        code_len = data[index]
+        index += 1
+        if index + code_len > len(data):
+            raise ValueError(f"keyboard password code truncated: {plaintext.hex()}")
+        code = data[index : index + code_len].decode("ascii", errors="replace")
+        index += code_len
+        if index + 5 > len(data):
+            raise ValueError(f"keyboard password start truncated: {plaintext.hex()}")
+        start_date = _decode_date5_dt(data[index : index + 5])
+        index += 5
+        end_date = None
+        if pwd_type in {KeyboardPwdType.COUNT, KeyboardPwdType.PERIOD}:
+            if index + 5 > len(data):
+                raise ValueError(f"keyboard password end truncated: {plaintext.hex()}")
+            end_date = _decode_date5_dt(data[index : index + 5])
+            index += 5
+        elif pwd_type == KeyboardPwdType.CIRCLE:
+            if index + 2 > len(data):
+                raise ValueError(f"keyboard password circle tail truncated: {plaintext.hex()}")
+            index += 2
+        items.append(
+            Passcode(
+                code=code,
+                new_code=new_code or None,
+                keyboard_pwd_type=pwd_type,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+    return items, sequence
 
 
 def payload_operate_log_request(sequence: int = 0xFFFF) -> bytes:

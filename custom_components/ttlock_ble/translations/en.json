@@ -76,6 +76,9 @@
             "delete_passcode": {
                 "name": "Delete passcode"
             },
+            "refresh_passcodes": {
+                "name": "Refresh passcodes"
+            },
             "refresh_fingerprints": {
                 "name": "Refresh fingerprints"
             }
@@ -107,6 +110,9 @@
             },
             "fingerprints_count": {
                 "name": "Fingerprints"
+            },
+            "passcodes_count": {
+                "name": "Passcodes"
             }
         },
         "select": {

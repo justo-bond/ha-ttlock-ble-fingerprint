@@ -16,7 +16,7 @@ from . import commands as cmd
 from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
-from .models import Fingerprint, LockEvent, LogEntry
+from .models import Fingerprint, LockEvent, LogEntry, Passcode
 from .protocol import Frame, FrameReassembler
 
 if TYPE_CHECKING:
@@ -392,6 +392,52 @@ class TTLockClient:
             await self._keyboard_password_exchange(
                 cmd.payload_passcode_delete(int(pwd_type), code),
                 "delete_passcode",
+            )
+
+    async def get_passcodes(self) -> list[Passcode]:
+        """Return keypad passcodes stored on the lock."""
+        async with self._command_lock:
+            await self._admin_login()
+            passcodes: list[Passcode] = []
+            seen_sequences: set[int] = set()
+            next_sequence = 0
+            while True:
+                frame = Frame.for_lock(
+                    self.key.lockVersion,
+                    cmd.CMD_GET_KEYBOARD_PASSWORDS,
+                    cmd.payload_passcode_list(next_sequence),
+                ).encrypt_data(self._aes_key)
+                resp = await self._exchange(frame)
+                plain = aes_decrypt(resp.data, self._aes_key)
+                page, sequence = cmd.parse_passcode_list_response(plain)
+                passcodes.extend(item for item in page if isinstance(item, Passcode))
+                if sequence in {-1, 0, next_sequence} or sequence in seen_sequences:
+                    break
+                seen_sequences.add(sequence)
+                next_sequence = sequence & 0xFFFF
+            return passcodes
+
+    async def update_passcode(
+        self,
+        old_code: str,
+        new_code: str,
+        *,
+        pwd_type: KeyboardPwdType = KeyboardPwdType.PERMANENT,
+        start_date: str = "0001311400",
+        end_date: str = "9912311400",
+    ) -> None:
+        """Update one keypad passcode and its validity window."""
+        async with self._command_lock:
+            await self._admin_login()
+            await self._keyboard_password_exchange(
+                cmd.payload_passcode_update(
+                    int(pwd_type),
+                    old_code,
+                    new_code,
+                    start_date,
+                    end_date,
+                ),
+                "update_passcode",
             )
 
     async def clear_passcodes(self) -> None:

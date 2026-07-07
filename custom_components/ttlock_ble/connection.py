@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from ttlock_ble import LockEvent, LockState, LogEntry, VirtualKey
-    from ttlock_ble.models import Fingerprint
+    from ttlock_ble.models import Fingerprint, Passcode
 
 
 RECONNECT_INITIAL_BACKOFF = 1.0
@@ -59,6 +59,11 @@ def fingerprint_signal(mac: str) -> str:
     return f"{DOMAIN}_fingerprints_{mac.lower()}"
 
 
+def passcode_signal(mac: str) -> str:
+    """Dispatcher signal that carries the cached passcode list for `mac`."""
+    return f"{DOMAIN}_passcodes_{mac.lower()}"
+
+
 class TtlockBleConnection:
     """Maintain a long-lived BLE session with one TTLock lock."""
 
@@ -74,6 +79,7 @@ class TtlockBleConnection:
         self._cooldown_until: float = 0.0
         self._seen_records: set[int] = set()
         self._fingerprints: list[Fingerprint] | None = None
+        self._passcodes: list[Passcode] | None = None
 
     @property
     def key(self) -> VirtualKey:
@@ -84,6 +90,11 @@ class TtlockBleConnection:
     def fingerprints(self) -> list[Fingerprint] | None:
         """Return the last fingerprint list read from the lock, if known."""
         return self._fingerprints
+
+    @property
+    def passcodes(self) -> list[Passcode] | None:
+        """Return the last passcode list read from the lock, if known."""
+        return self._passcodes
 
     @property
     def is_connected(self) -> bool:
@@ -303,6 +314,19 @@ class TtlockBleConnection:
                 await self._async_disconnect_locked()
                 raise
 
+    async def async_get_passcodes(self) -> list[Passcode]:
+        """Read keypad passcodes from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                return await self._async_refresh_passcodes_locked(client)
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
     async def async_add_passcode(
         self,
         code: str,
@@ -324,6 +348,37 @@ class TtlockBleConnection:
                     start_date=start_date,
                     end_date=end_date,
                 )
+                if self._passcodes is not None:
+                    await self._async_refresh_passcodes_locked(client)
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
+    async def async_update_passcode(
+        self,
+        old_code: str,
+        new_code: str,
+        *,
+        pwd_type: KeyboardPwdType,
+        start_date: str,
+        end_date: str,
+    ) -> None:
+        """Update one keypad passcode on the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                await client.update_passcode(
+                    old_code,
+                    new_code,
+                    pwd_type=pwd_type,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                if self._passcodes is not None:
+                    await self._async_refresh_passcodes_locked(client)
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
@@ -342,6 +397,11 @@ class TtlockBleConnection:
                 raise TTLockError(msg)
             try:
                 await client.delete_passcode(code, pwd_type=pwd_type)
+                if self._passcodes is not None:
+                    self._passcodes = [
+                        item for item in self._passcodes if item.code != code
+                    ]
+                    self._broadcast_passcodes()
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
@@ -355,6 +415,8 @@ class TtlockBleConnection:
                 raise TTLockError(msg)
             try:
                 await client.clear_passcodes()
+                self._passcodes = []
+                self._broadcast_passcodes()
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise
@@ -367,6 +429,15 @@ class TtlockBleConnection:
         self._fingerprints = await client.get_fingerprints()
         self._broadcast_fingerprints()
         return self._fingerprints
+
+    async def _async_refresh_passcodes_locked(
+        self,
+        client: TTLockClient,
+    ) -> list[Passcode]:
+        """Read passcodes, cache them, and notify HA entities."""
+        self._passcodes = await client.get_passcodes()
+        self._broadcast_passcodes()
+        return self._passcodes
 
     async def _async_run_command(self, action: str) -> None:
         """
@@ -453,6 +524,14 @@ class TtlockBleConnection:
             self._hass,
             fingerprint_signal(self._key.lockMac),
             self._fingerprints,
+        )
+
+    def _broadcast_passcodes(self) -> None:
+        """Notify subscribers that the cached passcode list changed."""
+        async_dispatcher_send(
+            self._hass,
+            passcode_signal(self._key.lockMac),
+            self._passcodes,
         )
 
     def _on_event(self, event: LockEvent) -> None:

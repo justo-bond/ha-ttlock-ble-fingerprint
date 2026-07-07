@@ -21,7 +21,7 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import AutoLockOperate, KeyboardPwdType, LockState, LogOperate, PwdOperateType
 from .exceptions import CloudError, TTLockError
-from .models import Fingerprint, LockEvent, LockVersion, LogEntry, SiteInfo, VirtualKey
+from .models import Fingerprint, LockEvent, LockVersion, LogEntry, Passcode, SiteInfo, VirtualKey
 
 __all__ = [
     "AutoLockOperate",
@@ -33,6 +33,7 @@ __all__ = [
     "LockVersion",
     "LogEntry",
     "LogOperate",
+    "Passcode",
     "PwdOperateType",
     "SiteInfo",
     "TTLockClient",
