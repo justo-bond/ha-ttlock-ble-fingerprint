@@ -409,7 +409,12 @@ class TTLockClient:
                 ).encrypt_data(self._aes_key)
                 resp = await self._exchange(frame)
                 plain = aes_decrypt(resp.data, self._aes_key)
-                page, sequence = cmd.parse_passcode_list_response(plain)
+                try:
+                    page, sequence = cmd.parse_passcode_list_response(plain)
+                except (RuntimeError, ValueError) as exc:
+                    raise TTLockError(
+                        f"Failed to get_passcodes: {exc}; response={plain.hex()}"
+                    ) from exc
                 passcodes.extend(item for item in page if isinstance(item, Passcode))
                 if sequence in {-1, 0, next_sequence} or sequence in seen_sequences:
                     break

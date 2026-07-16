@@ -13,7 +13,7 @@ class Passcode:
     """One keypad code and its validity window as reported by the lock."""
 
     code: str
-    keyboard_pwd_type: KeyboardPwdType
+    keyboard_pwd_type: KeyboardPwdType | int
     start_date: datetime | None = None
     end_date: datetime | None = None
     new_code: str | None = None
@@ -23,7 +23,11 @@ class Passcode:
         return {
             "code": self.code,
             "new_code": self.new_code,
-            "type": self.keyboard_pwd_type.name.lower(),
+            "type": (
+                self.keyboard_pwd_type.name.lower()
+                if isinstance(self.keyboard_pwd_type, KeyboardPwdType)
+                else str(self.keyboard_pwd_type)
+            ),
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
         }

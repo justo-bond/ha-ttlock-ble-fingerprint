@@ -291,7 +291,7 @@ async def _async_list_passcodes(
     connection = _connection_from_call(hass, call)
     try:
         passcodes = await connection.async_get_passcodes()
-    except TTLockError as exc:
+    except (TTLockError, ValueError, RuntimeError) as exc:
         raise HomeAssistantError(str(exc)) from exc
     return {"passcodes": [_passcode_response(item) for item in passcodes]}
 
@@ -321,7 +321,7 @@ async def _async_update_passcode(hass: HomeAssistant, call: ServiceCall) -> None
             start_date=_passcode_date(call.data[ATTR_START_DATE]),
             end_date=_passcode_date(call.data[ATTR_END_DATE]),
         )
-    except TTLockError as exc:
+    except (TTLockError, ValueError, RuntimeError) as exc:
         raise HomeAssistantError(str(exc)) from exc
 
 

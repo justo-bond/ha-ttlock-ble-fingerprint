@@ -545,39 +545,54 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[list[object], int]:
     index = 4
     items: list[object] = []
     while index < len(data):
-        index += 1  # row length; ignored in the upstream TS SDK
-        if index + 2 > len(data):
+        if index >= len(data):
             break
-        pwd_type = KeyboardPwdType(data[index])
+        row_len = data[index]
+        index += 1
+        if row_len == 0:
+            break
+        row_end = min(index + row_len, len(data))
+        if index + 2 > row_end:
+            break
+        raw_pwd_type = data[index]
+        try:
+            pwd_type: KeyboardPwdType | int = KeyboardPwdType(raw_pwd_type)
+        except ValueError:
+            pwd_type = raw_pwd_type
         index += 1
         new_len = data[index]
         index += 1
-        if index + new_len > len(data):
+        if index + new_len > row_end:
             raise ValueError(f"keyboard password new code truncated: {plaintext.hex()}")
         new_code = data[index : index + new_len].decode("ascii", errors="replace")
         index += new_len
-        if index >= len(data):
+        if index >= row_end:
             raise ValueError(f"keyboard password code length missing: {plaintext.hex()}")
         code_len = data[index]
         index += 1
-        if index + code_len > len(data):
+        if index + code_len > row_end:
             raise ValueError(f"keyboard password code truncated: {plaintext.hex()}")
         code = data[index : index + code_len].decode("ascii", errors="replace")
         index += code_len
-        if index + 5 > len(data):
+        if index + 5 > row_end:
             raise ValueError(f"keyboard password start truncated: {plaintext.hex()}")
         start_date = _decode_date5_dt(data[index : index + 5])
         index += 5
         end_date = None
         if pwd_type in {KeyboardPwdType.COUNT, KeyboardPwdType.PERIOD}:
-            if index + 5 > len(data):
+            if index + 5 > row_end:
                 raise ValueError(f"keyboard password end truncated: {plaintext.hex()}")
             end_date = _decode_date5_dt(data[index : index + 5])
             index += 5
         elif pwd_type == KeyboardPwdType.CIRCLE:
-            if index + 2 > len(data):
+            if index + 2 > row_end:
                 raise ValueError(f"keyboard password circle tail truncated: {plaintext.hex()}")
             index += 2
+        elif index + 5 <= row_end:
+            # Some firmware revisions appear to include an end-date block even when
+            # the type byte is not one of the documented values.
+            end_date = _decode_date5_dt(data[index : index + 5])
+            index += 5
         items.append(
             Passcode(
                 code=code,
@@ -587,6 +602,7 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[list[object], int]:
                 end_date=end_date,
             )
         )
+        index = row_end
     return items, sequence
 
 
