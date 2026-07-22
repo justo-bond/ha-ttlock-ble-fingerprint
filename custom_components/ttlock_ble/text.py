@@ -80,7 +80,6 @@ class TtlockBlePasscodeValueText(TtlockBlePasscodeText):
     _attr_translation_key = "passcode_value"
     _attr_icon = "mdi:numeric"
     _attr_mode = TextMode.PASSWORD
-    _attr_native_min = 4
     _attr_native_max = 9
 
     @property
