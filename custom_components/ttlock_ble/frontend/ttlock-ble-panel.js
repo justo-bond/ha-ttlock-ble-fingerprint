@@ -357,6 +357,10 @@ class TtlockBlePanel extends HTMLElement {
         start_date: this._serviceDateFromLocal(this._form.startAt, "0001311400"),
         end_date: this._serviceDateFromLocal(this._form.endAt, "9912311400"),
       };
+      const oldRevealKey = this._dialogKind === "passcode-edit"
+        ? this._passcodeKey(lock, { code: oldCode })
+        : null;
+      const newRevealKey = this._passcodeKey(lock, { code });
       if (this._dialogKind === "passcode-add") {
         await this._callService("add_passcode", { ...payload, passcode: code }, { returnResponse: true });
       } else {
@@ -371,6 +375,10 @@ class TtlockBlePanel extends HTMLElement {
         passcode: code,
         label,
       });
+      if (oldRevealKey && oldRevealKey !== newRevealKey) {
+        delete this._revealedPasscodes[oldRevealKey];
+      }
+      delete this._revealedPasscodes[newRevealKey];
       await this._refreshLock(lock);
       this._message = this._dialogKind === "passcode-add"
         ? `Passcode added for ${lock.name}`
@@ -418,6 +426,7 @@ class TtlockBlePanel extends HTMLElement {
     }
     this._setLockBusy(lock.id, true);
     try {
+      delete this._revealedPasscodes[this._passcodeKey(lock, passcode)];
       await this._callService("delete_passcode", {
         lock_mac: lock.target,
         passcode: passcode.code,
@@ -437,6 +446,9 @@ class TtlockBlePanel extends HTMLElement {
     }
     this._setLockBusy(lock.id, true);
     try {
+      Object.keys(this._revealedPasscodes)
+        .filter((key) => key.startsWith(`${lock.id}::`))
+        .forEach((key) => delete this._revealedPasscodes[key]);
       await this._callService("clear_passcodes", { lock_mac: lock.target });
       await this._refreshLock(lock);
       this._message = `All passcodes cleared for ${lock.name}`;
@@ -553,11 +565,12 @@ class TtlockBlePanel extends HTMLElement {
     const rows = lock.passcodes.length
       ? lock.passcodes.map((passcode) => `
           <tr>
-            <td class="mono">${passcode.code || "?"}</td>
+            <td class="mono">${this._revealedPasscodes[this._passcodeKey(lock, passcode)] || this._maskedPasscode(passcode)}</td>
             <td>${passcode.label || "—"}</td>
             <td>${passcode.type || "unknown"}</td>
             <td>${passcode.type === "permanent" ? "Permanent" : `${this._displayDate(passcode.start_date)} → ${this._displayDate(passcode.end_date)}`}</td>
             <td class="actions">
+              <button data-action="reveal-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Show</button>
               <button data-action="edit-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Edit</button>
               <button class="danger" data-action="delete-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Delete</button>
             </td>
@@ -725,46 +738,62 @@ class TtlockBlePanel extends HTMLElement {
       return `<dialog></dialog>`;
     }
     const activeLock = this._locks.find((item) => item.id === this._activeLockId);
-    const title = this._dialogKind === "passcode-add" ? "Add passcode" : "Edit passcode";
+    const isRevealDialog = this._dialogKind === "passcode-reveal";
+    const title = this._dialogKind === "passcode-add"
+      ? "Add passcode"
+      : isRevealDialog
+        ? "Reveal passcode"
+        : "Edit passcode";
     return `
       <dialog>
         <div class="dialog-body">
           <div class="dialog-title">${title}</div>
           <div class="dialog-subtitle">${activeLock?.name || ""}</div>
           <div class="form-grid">
-            ${this._dialogKind === "passcode-edit" ? `
+            ${isRevealDialog ? `
               <label>
-                Original code
-                <input value="${this._form.oldCode}" disabled />
+                Passcode owner
+                <input value="${this._form.label || "Unassigned"}" disabled />
               </label>
-            ` : ""}
-            <label>
-              New code
-              <input name="code" value="${this._form.code}" inputmode="numeric" autocomplete="off" />
-            </label>
-            <label>
-              Owner
-              <input name="label" value="${this._form.label}" autocomplete="off" />
-            </label>
-            <label>
-              Type
-              <select name="type">
-                <option value="period" ${this._form.type === "period" ? "selected" : ""}>Period</option>
-                <option value="permanent" ${this._form.type === "permanent" ? "selected" : ""}>Permanent</option>
-              </select>
-            </label>
-            <label>
-              Start
-              <input name="startAt" type="datetime-local" value="${this._form.startAt}" />
-            </label>
-            <label>
-              End
-              <input name="endAt" type="datetime-local" value="${this._form.endAt}" ${this._form.type === "permanent" ? "disabled" : ""} />
-            </label>
+              <label>
+                Admin password
+                <input name="adminPassword" type="password" value="${this._form.adminPassword}" autocomplete="current-password" />
+              </label>
+            ` : `
+              ${this._dialogKind === "passcode-edit" ? `
+                <label>
+                  Original code
+                  <input value="${this._form.oldCode}" disabled />
+                </label>
+              ` : ""}
+              <label>
+                New code
+                <input name="code" value="${this._form.code}" inputmode="numeric" autocomplete="off" />
+              </label>
+              <label>
+                Owner
+                <input name="label" value="${this._form.label}" autocomplete="off" />
+              </label>
+              <label>
+                Type
+                <select name="type">
+                  <option value="period" ${this._form.type === "period" ? "selected" : ""}>Period</option>
+                  <option value="permanent" ${this._form.type === "permanent" ? "selected" : ""}>Permanent</option>
+                </select>
+              </label>
+              <label>
+                Start
+                <input name="startAt" type="datetime-local" value="${this._form.startAt}" />
+              </label>
+              <label>
+                End
+                <input name="endAt" type="datetime-local" value="${this._form.endAt}" ${this._form.type === "permanent" ? "disabled" : ""} />
+              </label>
+            `}
           </div>
           <div class="dialog-actions">
             <button id="cancel-dialog" ${this._submitting ? "disabled" : ""}>Cancel</button>
-            <button id="submit-dialog" ${this._submitting ? "disabled" : ""}>${this._submitting ? "Saving..." : "Save"}</button>
+            <button id="submit-dialog" ${this._submitting ? "disabled" : ""}>${this._submitting ? (isRevealDialog ? "Checking..." : "Saving...") : (isRevealDialog ? "Show code" : "Save")}</button>
           </div>
         </div>
       </dialog>
@@ -787,9 +816,10 @@ class TtlockBlePanel extends HTMLElement {
         if (action === "add-fingerprint") return this._addFingerprint(lock);
         if (action === "set-auto-lock") return this._setAutoLock(lock);
 
-        if (action === "edit-passcode" || action === "delete-passcode") {
+        if (action === "reveal-passcode" || action === "edit-passcode" || action === "delete-passcode") {
           const passcode = lock.passcodes.find((item) => item.code === target.dataset.code);
           if (!passcode) return;
+          if (action === "reveal-passcode") return this._openRevealPasscodeDialog(lock, passcode);
           if (action === "edit-passcode") return this._openPasscodeDialog(lock, passcode);
           return this._deletePasscode(lock, passcode);
         }
