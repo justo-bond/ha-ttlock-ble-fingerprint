@@ -11,6 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from ttlock_ble import KeyboardPwdType, TTLockError
 
 from .entity import TtlockBleEntity
+from .labels import async_get_labels_manager
 from .services import DEFAULT_END_DATE, DEFAULT_SCAN_TIMEOUT, DEFAULT_START_DATE
 
 if TYPE_CHECKING:
@@ -105,6 +106,17 @@ class TtlockBlePasscodeButton(TtlockBleFingerprintButton):
     def _end_date(self) -> str:
         return self._state_value("passcode_end_date", self._draft.end_date)
 
+    async def _async_store_passcode_meta(self, code: str) -> None:
+        """Persist local metadata so passcodes stay visible without list support."""
+        labels = await async_get_labels_manager(self.hass)
+        await labels.async_upsert_passcode_meta(
+            self._key.lockMac,
+            code,
+            passcode_type=self._state_value("passcode_type", self._draft.passcode_type),
+            start_date=_passcode_iso(self._start_date()),
+            end_date=_passcode_iso(self._end_date()),
+        )
+
 
 class TtlockBleAddPasscodeButton(TtlockBlePasscodeButton):
     """Create a keypad passcode from the current draft values."""
@@ -116,15 +128,17 @@ class TtlockBleAddPasscodeButton(TtlockBlePasscodeButton):
         return f"{self._key.lockMac}_add_passcode"
 
     async def async_press(self) -> None:
+        code = self._code()
         try:
             await self._connection.async_add_passcode(
-                self._code(),
+                code,
                 pwd_type=self._pwd_type(),
                 start_date=self._start_date(),
                 end_date=self._end_date(),
             )
         except TTLockError as exc:
             raise HomeAssistantError(str(exc)) from exc
+        await self._async_store_passcode_meta(code)
 
 
 class TtlockBleDeletePasscodeButton(TtlockBlePasscodeButton):
@@ -137,13 +151,17 @@ class TtlockBleDeletePasscodeButton(TtlockBlePasscodeButton):
         return f"{self._key.lockMac}_delete_passcode"
 
     async def async_press(self) -> None:
+        code = self._code()
         try:
             await self._connection.async_delete_passcode(
-                self._code(),
+                code,
                 pwd_type=self._pwd_type(),
             )
         except TTLockError as exc:
             raise HomeAssistantError(str(exc)) from exc
+        labels = await async_get_labels_manager(self.hass)
+        await labels.async_delete_passcode(self._key.lockMac, code)
+        await labels.async_delete_passcode_meta(self._key.lockMac, code)
 
 
 class TtlockBleClearPasscodesButton(TtlockBleFingerprintButton):
@@ -161,6 +179,9 @@ class TtlockBleClearPasscodesButton(TtlockBleFingerprintButton):
             await self._connection.async_clear_passcodes()
         except TTLockError as exc:
             raise HomeAssistantError(str(exc)) from exc
+        labels = await async_get_labels_manager(self.hass)
+        await labels.async_clear_passcodes(self._key.lockMac)
+        await labels.async_clear_passcode_meta(self._key.lockMac)
 
 
 class TtlockBleRefreshPasscodesButton(TtlockBleFingerprintButton):
@@ -218,3 +239,14 @@ class TtlockBleRefreshFingerprintsButton(TtlockBleFingerprintButton):
             await self._connection.async_get_fingerprints()
         except TTLockError as exc:
             raise HomeAssistantError(str(exc)) from exc
+
+
+def _passcode_iso(value: str) -> str | None:
+    """Convert a TTLock passcode date into an ISO-like local timestamp."""
+    normalized = value if len(value) == 12 else f"20{value}"
+    if len(normalized) != 12:
+        return None
+    return (
+        f"{normalized[0:4]}-{normalized[4:6]}-{normalized[6:8]}"
+        f"T{normalized[8:10]}:{normalized[10:12]}:00"
+    )

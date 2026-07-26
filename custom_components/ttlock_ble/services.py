@@ -365,7 +365,11 @@ async def _async_list_passcodes(
     except (TTLockError, ValueError, RuntimeError) as exc:
         fallback = labels.get_passcode_meta(connection.key.lockMac)
         if not fallback:
-            raise HomeAssistantError(str(exc)) from exc
+            return {
+                "passcodes": [],
+                "warning": _passcode_list_warning(fallback_used=False),
+                "error": str(exc),
+            }
         return {
             "passcodes": [
                 {
@@ -376,10 +380,8 @@ async def _async_list_passcodes(
                 }
                 for item in fallback
             ],
-            "warning": (
-                "Lock rejected direct passcode listing, showing only passcodes "
-                "created through this Home Assistant integration."
-            ),
+            "warning": _passcode_list_warning(fallback_used=True),
+            "error": str(exc),
         }
     return {
         "passcodes": [
@@ -622,4 +624,17 @@ def _passcode_iso(value: str) -> str | None:
     return (
         f"{normalized[0:4]}-{normalized[4:6]}-{normalized[6:8]}"
         f"T{normalized[8:10]}:{normalized[10:12]}:00"
+    )
+
+
+def _passcode_list_warning(*, fallback_used: bool) -> str:
+    """Return a user-facing explanation for locks that reject passcode listing."""
+    if fallback_used:
+        return (
+            "This lock rejects direct passcode listing over BLE. "
+            "Showing passcodes saved locally by this Home Assistant integration."
+        )
+    return (
+        "This lock rejects direct passcode listing over BLE. "
+        "New passcodes created here will appear after they are saved locally."
     )
