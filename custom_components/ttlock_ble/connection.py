@@ -166,8 +166,13 @@ class TtlockBleConnection:
         """Send an UNLOCK command on the live connection (raises on failure)."""
         await self._async_run_command("unlock")
 
-    async def async_get_operation_log(self, *, dispatch: bool = True) -> list[LogEntry]:
-        """Fetch operation records from the lock and dispatch new ones."""
+    async def async_get_operation_log(
+        self,
+        *,
+        dispatch: bool = True,
+        only_new: bool = True,
+    ) -> list[LogEntry]:
+        """Fetch operation records from the lock and optionally filter to new ones."""
         async with self._lock:
             client = await self._async_ensure_connected_locked()
             if client is None:
@@ -205,7 +210,9 @@ class TtlockBleConnection:
                     log_signal(self._key.lockMac),
                     entry,
                 )
-        return new_entries
+        if only_new:
+            return new_entries
+        return entries
 
     async def async_add_fingerprint(
         self,
