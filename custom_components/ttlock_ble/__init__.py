@@ -19,7 +19,10 @@ from .connection import TtlockBleConnection
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData, TtlockBlePasscodeDraft
+from .frontend import async_register_frontend
 from .services import async_setup_services
+
+INTEGRATION_VERSION = "3.7.0"
 
 if TYPE_CHECKING:
     from homeassistant.components.bluetooth import (
@@ -60,6 +63,7 @@ async def async_setup_entry(
     for connection in connections.values():
         await connection.async_start()
     async_setup_services(hass)
+    await async_register_frontend(hass, version=INTEGRATION_VERSION)
 
     scan_interval_seconds: int = int(
         entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS),
