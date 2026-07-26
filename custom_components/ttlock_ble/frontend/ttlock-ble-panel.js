@@ -40,14 +40,19 @@ class TtlockBlePanel extends HTMLElement {
   _defaultForm() {
     const now = new Date();
     const later = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const startAt = this._toDateTimeLocal(now);
+    const endAt = this._toDateTimeLocal(later);
     return {
       code: "",
       oldCode: "",
       label: "",
       adminPassword: "",
       type: "period",
-      startAt: this._toDateTimeLocal(now),
-      endAt: this._toDateTimeLocal(later),
+      startDate: startAt.slice(0, 10),
+      startTime: startAt.slice(11, 16),
+      endDate: endAt.slice(0, 10),
+      endTime: endAt.slice(11, 16),
+      autoLockSeconds: "0",
     };
   }
 
@@ -242,6 +247,21 @@ class TtlockBlePanel extends HTMLElement {
     return `${match[1]}${match[2]}${match[3]}${match[4]}${match[5]}`;
   }
 
+  _splitDateTimeLocal(value, fallbackDateTime) {
+    const normalized = value || fallbackDateTime;
+    return {
+      date: normalized.slice(0, 10),
+      time: normalized.slice(11, 16),
+    };
+  }
+
+  _combineDateTimeLocal(date, time) {
+    if (!date || !time) {
+      return "";
+    }
+    return `${date}T${time}`;
+  }
+
   _displayDate(value) {
     if (!value) {
       return "—";
@@ -256,6 +276,10 @@ class TtlockBlePanel extends HTMLElement {
   _openPasscodeDialog(lock, passcode = null) {
     const now = new Date();
     const later = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const startAt = passcode?.start_date ? this._toDateTimeLocal(passcode.start_date) : this._toDateTimeLocal(now);
+    const endAt = passcode?.end_date ? this._toDateTimeLocal(passcode.end_date) : this._toDateTimeLocal(later);
+    const startParts = this._splitDateTimeLocal(startAt, this._toDateTimeLocal(now));
+    const endParts = this._splitDateTimeLocal(endAt, this._toDateTimeLocal(later));
     this._dialogKind = passcode ? "passcode-edit" : "passcode-add";
     this._activeLockId = lock.id;
     this._activePasscodeCode = passcode?.code || null;
@@ -265,8 +289,11 @@ class TtlockBlePanel extends HTMLElement {
       label: passcode?.label || "",
       adminPassword: "",
       type: passcode?.type === "permanent" ? "permanent" : "period",
-      startAt: passcode?.start_date ? this._toDateTimeLocal(passcode.start_date) : this._toDateTimeLocal(now),
-      endAt: passcode?.end_date ? this._toDateTimeLocal(passcode.end_date) : this._toDateTimeLocal(later),
+      startDate: startParts.date,
+      startTime: startParts.time,
+      endDate: endParts.date,
+      endTime: endParts.time,
+      autoLockSeconds: String(lock.autoLockSeconds ?? 0),
     };
     this._dialogOpen = true;
     this._submitting = false;
@@ -334,7 +361,6 @@ class TtlockBlePanel extends HTMLElement {
       await this._submitRevealDialog(lock);
       return;
     }
-
     const code = this._form.code.trim();
     const oldCode = this._form.oldCode.trim();
     const label = this._form.label.trim();
@@ -358,8 +384,14 @@ class TtlockBlePanel extends HTMLElement {
       const payload = {
         lock_mac: lock.target,
         passcode_type: this._form.type,
-        start_date: this._serviceDateFromLocal(this._form.startAt, "0001311400"),
-        end_date: this._serviceDateFromLocal(this._form.endAt, "9912311400"),
+        start_date: this._serviceDateFromLocal(
+          this._combineDateTimeLocal(this._form.startDate, this._form.startTime),
+          "0001311400",
+        ),
+        end_date: this._serviceDateFromLocal(
+          this._combineDateTimeLocal(this._form.endDate, this._form.endTime),
+          "9912311400",
+        ),
       };
       const oldRevealKey = this._dialogKind === "passcode-edit"
         ? this._passcodeKey(lock, { code: oldCode })
@@ -539,15 +571,7 @@ class TtlockBlePanel extends HTMLElement {
     }
   }
 
-  async _setAutoLock(lock) {
-    const current = lock.autoLockSeconds ?? 0;
-    const value = window.prompt(
-      "Auto-lock delay in seconds (0 disables auto-lock):",
-      String(current),
-    );
-    if (value === null) {
-      return;
-    }
+  async _setAutoLock(lock, value) {
     const seconds = Number.parseInt(value, 10);
     if (Number.isNaN(seconds) || seconds < 0 || seconds > 65535) {
       this._error = "Auto-lock must be between 0 and 65535 seconds";
@@ -555,6 +579,7 @@ class TtlockBlePanel extends HTMLElement {
       return;
     }
     this._setLockBusy(lock.id, true);
+    this._error = "";
     try {
       await this._callService("set_auto_lock", {
         lock_mac: lock.target,
@@ -618,15 +643,14 @@ class TtlockBlePanel extends HTMLElement {
           <tr>
             <td class="mono">${fingerprint.fingerprint_number || "?"}</td>
             <td>${fingerprint.label || "—"}</td>
-            <td>${this._displayDate(fingerprint.start_date)}</td>
-            <td>${this._displayDate(fingerprint.end_date)}</td>
+            <td>${this._displayDate(fingerprint.start_date)} в†’ ${this._displayDate(fingerprint.end_date)}</td>
             <td class="actions">
               <button data-action="edit-fingerprint-label" data-lock-id="${lock.id}" data-fingerprint-number="${fingerprint.fingerprint_number}">Owner</button>
               <button class="danger" data-action="delete-fingerprint" data-lock-id="${lock.id}" data-fingerprint-number="${fingerprint.fingerprint_number}">Delete</button>
             </td>
           </tr>
         `).join("")
-      : `<tr><td colspan="5" class="empty">No fingerprints yet.</td></tr>`;
+      : `<tr><td colspan="4" class="empty">No fingerprints yet.</td></tr>`;
     const warning = lock.fingerprintsError
       ? `<div class="section-note error-note">${lock.fingerprintsError}</div>`
       : "";
@@ -643,7 +667,7 @@ class TtlockBlePanel extends HTMLElement {
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>ID</th><th>Owner</th><th>Start</th><th>End</th><th></th></tr>
+              <tr><th>ID</th><th>Owner</th><th>Validity</th><th></th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
@@ -690,6 +714,7 @@ class TtlockBlePanel extends HTMLElement {
   }
 
   _renderLockControls(lock) {
+    const autoLockOptions = [0, 5, 10, 15, 30, 60, 120, 300, 600];
     const autoLockLabel =
       lock.autoLockSeconds === null
         ? "Unknown"
@@ -703,9 +728,6 @@ class TtlockBlePanel extends HTMLElement {
       <section class="section">
         <div class="section-header">
           <h3>Lock</h3>
-          <div class="toolbar">
-            <button data-action="set-auto-lock" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Auto-close</button>
-          </div>
         </div>
         <div class="detail-grid">
           <div class="detail-item">
@@ -714,9 +736,22 @@ class TtlockBlePanel extends HTMLElement {
           </div>
           <div class="detail-item">
             <div class="detail-label">Auto-close</div>
-            <div class="detail-value">${autoLockLabel}</div>
+            <div class="detail-value">
+              <select data-action="set-auto-lock-select" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>
+                ${lock.autoLockSeconds === null ? `<option value="" selected>Unknown</option>` : ""}
+                ${autoLockOptions.map((seconds) => `
+                  <option value="${seconds}" ${lock.autoLockSeconds === seconds ? "selected" : ""}>
+                    ${seconds === 0 ? "Disabled" : `${seconds} sec`}
+                  </option>
+                `).join("")}
+                ${lock.autoLockSeconds !== null && !autoLockOptions.includes(lock.autoLockSeconds) ? `
+                  <option value="${lock.autoLockSeconds}" selected>${lock.autoLockSeconds} sec</option>
+                ` : ""}
+              </select>
+            </div>
           </div>
         </div>
+        <div class="section-note">Current setting: ${autoLockLabel}</div>
         ${warning}
       </section>
     `;
@@ -759,7 +794,7 @@ class TtlockBlePanel extends HTMLElement {
           <div class="dialog-title">${title}</div>
           <div class="dialog-subtitle">${activeLock?.name || ""}</div>
           ${isRevealDialog ? `<div class="section-note">The code can be revealed only after confirming the current Home Assistant administrator password.</div>` : ""}
-          ${this._error && isRevealDialog ? `<div class="section-note error-note">${this._error}</div>` : ""}
+          ${this._error ? `<div class="section-note error-note">${this._error}</div>` : ""}
           ${this._revealResult ? `<div class="section-note">Passcode: <span class="mono">${this._revealResult}</span></div>` : ""}
           <div class="form-grid">
             ${isRevealDialog ? `
@@ -793,14 +828,24 @@ class TtlockBlePanel extends HTMLElement {
                   <option value="permanent" ${this._form.type === "permanent" ? "selected" : ""}>Permanent</option>
                 </select>
               </label>
-              <label>
-                Start
-                <input name="startAt" type="datetime-local" value="${this._form.startAt}" />
-              </label>
-              <label>
-                End
-                <input name="endAt" type="datetime-local" value="${this._form.endAt}" ${this._form.type === "permanent" ? "disabled" : ""} />
-              </label>
+              <div class="period-grid">
+                <label>
+                  Start date
+                  <input name="startDate" type="date" value="${this._form.startDate}" />
+                </label>
+                <label>
+                  Start time
+                  <input name="startTime" type="time" value="${this._form.startTime}" />
+                </label>
+                <label>
+                  End date
+                  <input name="endDate" type="date" value="${this._form.endDate}" ${this._form.type === "permanent" ? "disabled" : ""} />
+                </label>
+                <label>
+                  End time
+                  <input name="endTime" type="time" value="${this._form.endTime}" ${this._form.type === "permanent" ? "disabled" : ""} />
+                </label>
+              </div>
             `}
           </div>
           <div class="dialog-actions">
@@ -826,7 +871,6 @@ class TtlockBlePanel extends HTMLElement {
         if (action === "add-passcode") return this._openPasscodeDialog(lock);
         if (action === "clear-passcodes") return this._clearPasscodes(lock);
         if (action === "add-fingerprint") return this._addFingerprint(lock);
-        if (action === "set-auto-lock") return this._setAutoLock(lock);
 
         if (action === "reveal-passcode" || action === "edit-passcode" || action === "delete-passcode") {
           const passcode = lock.passcodes.find((item) => item.code === target.dataset.code);
@@ -863,6 +907,15 @@ class TtlockBlePanel extends HTMLElement {
         dialog.showModal();
       }
     }
+
+    this.shadowRoot.querySelectorAll('[data-action="set-auto-lock-select"]').forEach((select) => {
+      select.addEventListener("change", (event) => {
+        const target = event.currentTarget;
+        const lock = this._locks.find((item) => item.id === target.dataset.lockId);
+        if (!lock) return;
+        this._setAutoLock(lock, target.value);
+      });
+    });
   }
 
   _render() {
@@ -984,6 +1037,9 @@ class TtlockBlePanel extends HTMLElement {
           font-size: 15px;
           font-weight: 600;
         }
+        .detail-value select {
+          font-weight: 500;
+        }
         .section-note {
           margin: 10px 0 12px;
           padding: 10px 12px;
@@ -1015,6 +1071,11 @@ class TtlockBlePanel extends HTMLElement {
         .dialog-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
         .dialog-subtitle { color: var(--secondary-text-color); font-size: 14px; margin-bottom: 16px; }
         .form-grid { display: grid; gap: 12px; }
+        .period-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
         label {
           display: grid;
           gap: 6px;
@@ -1033,6 +1094,7 @@ class TtlockBlePanel extends HTMLElement {
         @media (max-width: 800px) {
           .page { padding: 16px 12px 32px; }
           table { min-width: 620px; }
+          .period-grid { grid-template-columns: 1fr; }
         }
       </style>
       <div class="page">
