@@ -13,6 +13,7 @@ class TtlockBlePanel extends HTMLElement {
     this._activeLockId = null;
     this._activePasscodeCode = null;
     this._revealedPasscodes = {};
+    this._revealResult = "";
     this._form = this._defaultForm();
   }
 
@@ -271,6 +272,7 @@ class TtlockBlePanel extends HTMLElement {
     this._submitting = false;
     this._message = "";
     this._error = "";
+    this._revealResult = "";
     this._render();
     const dialog = this.shadowRoot.querySelector("dialog");
     if (dialog && !dialog.open) {
@@ -282,6 +284,7 @@ class TtlockBlePanel extends HTMLElement {
     this._dialogOpen = false;
     this._submitting = false;
     this._activePasscodeCode = null;
+    this._revealResult = "";
     this.shadowRoot.querySelector("dialog")?.close();
     this._render();
   }
@@ -300,6 +303,7 @@ class TtlockBlePanel extends HTMLElement {
     this._submitting = false;
     this._message = "";
     this._error = "";
+    this._revealResult = "";
     this._render();
     const dialog = this.shadowRoot.querySelector("dialog");
     if (dialog && !dialog.open) {
@@ -409,12 +413,17 @@ class TtlockBlePanel extends HTMLElement {
         passcode: this._activePasscodeCode,
         admin_password: adminPassword,
       }, { returnResponse: true });
-      this._revealedPasscodes[this._passcodeKey(lock, { code: this._activePasscodeCode })] =
-        result?.response?.passcode || this._activePasscodeCode;
-      this._message = `Passcode revealed for ${lock.name}`;
-      this._closeDialog();
+      const revealedCode = result?.response?.passcode || this._activePasscodeCode;
+      this._revealedPasscodes[this._passcodeKey(lock, { code: this._activePasscodeCode })] = revealedCode;
+      this._revealResult = revealedCode;
+      this._message = "";
+      this._submitting = false;
+      this._render();
     } catch (err) {
-      this._error = this._errorText(err);
+      const message = this._errorText(err);
+      this._error = message === "Invalid admin password"
+        ? "Wrong admin password"
+        : message;
       this._submitting = false;
       this._render();
     }
@@ -749,6 +758,9 @@ class TtlockBlePanel extends HTMLElement {
         <div class="dialog-body">
           <div class="dialog-title">${title}</div>
           <div class="dialog-subtitle">${activeLock?.name || ""}</div>
+          ${isRevealDialog ? `<div class="section-note">The password is checked against the TTLock admin password stored in Home Assistant for this imported key.</div>` : ""}
+          ${this._error && isRevealDialog ? `<div class="section-note error-note">${this._error}</div>` : ""}
+          ${this._revealResult ? `<div class="section-note">Passcode: <span class="mono">${this._revealResult}</span></div>` : ""}
           <div class="form-grid">
             ${isRevealDialog ? `
               <label>
@@ -793,7 +805,7 @@ class TtlockBlePanel extends HTMLElement {
           </div>
           <div class="dialog-actions">
             <button id="cancel-dialog" ${this._submitting ? "disabled" : ""}>Cancel</button>
-            <button id="submit-dialog" ${this._submitting ? "disabled" : ""}>${this._submitting ? (isRevealDialog ? "Checking..." : "Saving...") : (isRevealDialog ? "Show code" : "Save")}</button>
+            <button id="submit-dialog" ${this._submitting ? "disabled" : ""}>${this._submitting ? (isRevealDialog ? "Checking..." : "Saving...") : (isRevealDialog ? (this._revealResult ? "Show again" : "Show code") : "Save")}</button>
           </div>
         </div>
       </dialog>
