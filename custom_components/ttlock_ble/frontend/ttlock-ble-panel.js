@@ -148,6 +148,29 @@ class TtlockBlePanel extends HTMLElement {
     return "Unknown";
   }
 
+  async _setLockState(lock, targetState) {
+    if (!lock.lockEntityId) {
+      this._error = `Lock entity is unavailable for ${lock.name}`;
+      this._render();
+      return;
+    }
+    this._setLockBusy(lock.id, true);
+    this._error = "";
+    try {
+      await this._hass.connection.sendMessagePromise({
+        type: "call_service",
+        domain: "lock",
+        service: targetState === "locked" ? "lock" : "unlock",
+        service_data: { entity_id: lock.lockEntityId },
+      });
+      await this._refreshLock(lock);
+      this._message = `${lock.name} ${targetState === "locked" ? "locked" : "unlocked"}`;
+    } catch (err) {
+      this._error = this._errorText(err);
+      this._setLockBusy(lock.id, false);
+    }
+  }
+
   _setLockBusy(lockId, busy) {
     const lock = this._locks.find((item) => item.id === lockId);
     if (!lock) {
@@ -613,7 +636,7 @@ class TtlockBlePanel extends HTMLElement {
             <td class="mono">${this._revealedPasscodes[this._passcodeKey(lock, passcode)] || this._maskedPasscode(passcode)}</td>
             <td>${passcode.label || "-"}</td>
             <td>${passcode.type || "unknown"}</td>
-            <td>${passcode.type === "permanent" ? "Permanent" : `${this._displayDate(passcode.start_date)}  ->  ${this._displayDate(passcode.end_date)}`}</td>
+            <td>${passcode.type === "permanent" ? "Permanent" : `${this._displayDate(passcode.start_date)} -> ${this._displayDate(passcode.end_date)}`}</td>
             <td class="actions">
               <button data-action="reveal-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Show</button>
               <button data-action="edit-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Edit</button>
@@ -654,7 +677,7 @@ class TtlockBlePanel extends HTMLElement {
           <tr>
             <td class="mono">${fingerprint.fingerprint_number || "?"}</td>
             <td>${fingerprint.label || "-"}</td>
-            <td>${this._displayDate(fingerprint.start_date)}  ->  ${this._displayDate(fingerprint.end_date)}</td>
+            <td>${this._displayDate(fingerprint.start_date)} -> ${this._displayDate(fingerprint.end_date)}</td>
             <td class="actions">
               <button data-action="edit-fingerprint-label" data-lock-id="${lock.id}" data-fingerprint-number="${fingerprint.fingerprint_number}">Owner</button>
               <button class="danger" data-action="delete-fingerprint" data-lock-id="${lock.id}" data-fingerprint-number="${fingerprint.fingerprint_number}">Delete</button>
@@ -752,7 +775,24 @@ class TtlockBlePanel extends HTMLElement {
         <div class="detail-grid">
           <div class="detail-item">
             <div class="detail-label">State</div>
-            <div class="detail-value">${this._lockStateLabel(lock)}</div>
+            <div class="detail-value">
+              <div class="segmented-control">
+                <button
+                  class="segment ${this._lockStateLabel(lock) === "Locked" ? "selected" : ""}"
+                  data-action="set-lock-state"
+                  data-lock-id="${lock.id}"
+                  data-lock-state="locked"
+                  ${lock.busy ? "disabled" : ""}
+                >Locked</button>
+                <button
+                  class="segment ${this._lockStateLabel(lock) === "Unlocked" ? "selected" : ""}"
+                  data-action="set-lock-state"
+                  data-lock-id="${lock.id}"
+                  data-lock-state="unlocked"
+                  ${lock.busy ? "disabled" : ""}
+                >Unlocked</button>
+              </div>
+            </div>
           </div>
           <div class="detail-item">
             <div class="detail-label">Auto-close</div>
@@ -825,7 +865,7 @@ class TtlockBlePanel extends HTMLElement {
         <div class="dialog-body">
           <div class="dialog-title">${title}</div>
           <div class="dialog-subtitle">${activeLock?.name || ""}</div>
-          ${isRevealDialog ? `<div class="section-note">The code can be revealed only after confirming the current Home Assistant administrator password.</div>` : ""}
+          ${isRevealDialog && !this._revealResult ? `<div class="section-note">The code can be revealed only after confirming the current Home Assistant administrator password.</div>` : ""}
           ${this._error ? `<div class="section-note error-note">${this._error}</div>` : ""}
           ${this._revealResult ? `<div class="section-note">Passcode: <span class="mono">${this._revealResult}</span></div>` : ""}
           <div class="form-grid">
@@ -838,6 +878,7 @@ class TtlockBlePanel extends HTMLElement {
                 Admin password
                 <input name="adminPassword" type="password" value="${this._form.adminPassword}" autocomplete="current-password" />
               </label>
+              <div class="form-spacer"></div>
             ` : `
               ${this._dialogKind === "passcode-edit" ? `
                 <label>
@@ -903,6 +944,7 @@ class TtlockBlePanel extends HTMLElement {
         if (action === "add-passcode") return this._openPasscodeDialog(lock);
         if (action === "clear-passcodes") return this._clearPasscodes(lock);
         if (action === "add-fingerprint") return this._addFingerprint(lock);
+        if (action === "set-lock-state") return this._setLockState(lock, target.dataset.lockState);
 
         if (action === "reveal-passcode" || action === "edit-passcode" || action === "delete-passcode") {
           const passcode = lock.passcodes.find((item) => item.code === target.dataset.code);
@@ -934,6 +976,11 @@ class TtlockBlePanel extends HTMLElement {
       dialog?.addEventListener("cancel", (event) => {
         event.preventDefault();
         this._closeDialog();
+      });
+      dialog?.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          this._closeDialog();
+        }
       });
       if (dialog && !dialog.open) {
         dialog.showModal();
@@ -1103,6 +1150,24 @@ class TtlockBlePanel extends HTMLElement {
         .detail-value select {
           font-weight: 500;
         }
+        .segmented-control {
+          display: inline-grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0;
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .segment {
+          border: 0;
+          border-radius: 0;
+          padding: 8px 12px;
+          min-width: 96px;
+        }
+        .segment.selected {
+          background: var(--primary-color);
+          color: var(--text-primary-color, #fff);
+        }
         .section-note {
           margin: 10px 0 12px;
           padding: 10px 12px;
@@ -1134,10 +1199,17 @@ class TtlockBlePanel extends HTMLElement {
         .dialog-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
         .dialog-subtitle { color: var(--secondary-text-color); font-size: 14px; margin-bottom: 16px; }
         .form-grid { display: grid; gap: 12px; }
+        .form-spacer { height: 4px; }
         .period-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 12px;
+        }
+        .dialog-actions {
+          width: 100%;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 20px;
         }
         label {
           display: grid;
