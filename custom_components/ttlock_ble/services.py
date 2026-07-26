@@ -309,12 +309,20 @@ async def _async_add_passcode(
         )
     except TTLockError as exc:
         raise HomeAssistantError(str(exc)) from exc
+    labels = await async_get_labels_manager(hass)
+    await labels.async_upsert_passcode_meta(
+        connection.key.lockMac,
+        call.data[ATTR_PASSCODE],
+        passcode_type=call.data[ATTR_PASSCODE_TYPE],
+        start_date=_passcode_iso(call.data[ATTR_START_DATE]),
+        end_date=_passcode_iso(call.data[ATTR_END_DATE]),
+    )
     return {
         "passcode": {
             "code": call.data[ATTR_PASSCODE],
             "type": call.data[ATTR_PASSCODE_TYPE],
-            "start_date": _passcode_date(call.data[ATTR_START_DATE]),
-            "end_date": _passcode_date(call.data[ATTR_END_DATE]),
+            "start_date": _passcode_iso(call.data[ATTR_START_DATE]),
+            "end_date": _passcode_iso(call.data[ATTR_END_DATE]),
         },
     }
 
@@ -355,7 +363,24 @@ async def _async_list_passcodes(
     try:
         passcodes = await connection.async_get_passcodes()
     except (TTLockError, ValueError, RuntimeError) as exc:
-        raise HomeAssistantError(str(exc)) from exc
+        fallback = labels.get_passcode_meta(connection.key.lockMac)
+        if not fallback:
+            raise HomeAssistantError(str(exc)) from exc
+        return {
+            "passcodes": [
+                {
+                    **item,
+                    "label": labels.get_passcode_label(connection.key.lockMac, item["code"]),
+                    "lock_mac": connection.key.lockMac,
+                    "source": "local_cache",
+                }
+                for item in fallback
+            ],
+            "warning": (
+                "Lock rejected direct passcode listing, showing only passcodes "
+                "created through this Home Assistant integration."
+            ),
+        }
     return {
         "passcodes": [
             _passcode_response(
@@ -411,6 +436,21 @@ async def _async_update_passcode(hass: HomeAssistant, call: ServiceCall) -> None
         )
     except (TTLockError, ValueError, RuntimeError) as exc:
         raise HomeAssistantError(str(exc)) from exc
+    labels = await async_get_labels_manager(hass)
+    old_code = call.data[ATTR_OLD_PASSCODE]
+    new_code = call.data[ATTR_NEW_PASSCODE]
+    old_label = labels.get_passcode_label(connection.key.lockMac, old_code)
+    await labels.async_delete_passcode_meta(connection.key.lockMac, old_code)
+    await labels.async_upsert_passcode_meta(
+        connection.key.lockMac,
+        new_code,
+        passcode_type=call.data[ATTR_PASSCODE_TYPE],
+        start_date=_passcode_iso(call.data[ATTR_START_DATE]),
+        end_date=_passcode_iso(call.data[ATTR_END_DATE]),
+    )
+    if old_code != new_code and old_label:
+        await labels.async_delete_passcode(connection.key.lockMac, old_code)
+        await labels.async_set_passcode_label(connection.key.lockMac, new_code, old_label)
 
 
 async def _async_delete_fingerprint(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -440,6 +480,10 @@ async def _async_delete_passcode(hass: HomeAssistant, call: ServiceCall) -> None
     except TTLockError as exc:
         raise HomeAssistantError(str(exc)) from exc
     await labels.async_delete_passcode(connection.key.lockMac, call.data[ATTR_PASSCODE])
+    await labels.async_delete_passcode_meta(
+        connection.key.lockMac,
+        call.data[ATTR_PASSCODE],
+    )
 
 
 async def _async_clear_fingerprints(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -462,6 +506,7 @@ async def _async_clear_passcodes(hass: HomeAssistant, call: ServiceCall) -> None
     except TTLockError as exc:
         raise HomeAssistantError(str(exc)) from exc
     await labels.async_clear_passcodes(connection.key.lockMac)
+    await labels.async_clear_passcode_meta(connection.key.lockMac)
 
 
 async def _async_set_fingerprint_label(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -567,3 +612,14 @@ def _log_entry_response(entry: LogEntry) -> dict[str, object | None]:
         "start_date": entry.start_date.isoformat() if entry.start_date else None,
         "end_date": entry.end_date.isoformat() if entry.end_date else None,
     }
+
+
+def _passcode_iso(value: str) -> str | None:
+    """Convert a TTLock passcode date into an ISO-like local timestamp."""
+    normalized = value if len(value) == 12 else f"20{value}"
+    if len(normalized) != 12:
+        return None
+    return (
+        f"{normalized[0:4]}-{normalized[4:6]}-{normalized[6:8]}"
+        f"T{normalized[8:10]}:{normalized[10:12]}:00"
+    )

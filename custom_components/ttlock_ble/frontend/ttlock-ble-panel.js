@@ -109,6 +109,9 @@ class TtlockBlePanel extends HTMLElement {
       passcodes: [],
       fingerprints: [],
       history: [],
+      passcodesError: "",
+      fingerprintsError: "",
+      historyError: "",
     };
   }
 
@@ -144,15 +147,40 @@ class TtlockBlePanel extends HTMLElement {
   async _refreshLock(lock) {
     this._setLockBusy(lock.id, true);
     try {
-      const [passcodesResult, fingerprintsResult, historyResult] = await Promise.all([
+      const [passcodesResult, fingerprintsResult, historyResult] = await Promise.allSettled([
         this._callService("list_passcodes", { lock_mac: lock.target }),
         this._callService("list_fingerprints", { lock_mac: lock.target }),
         this._callService("list_operation_log", { lock_mac: lock.target }),
       ]);
-      lock.passcodes = passcodesResult?.response?.passcodes || [];
-      lock.fingerprints = fingerprintsResult?.response?.fingerprints || [];
-      lock.history = historyResult?.response?.entries || [];
-      this._message = `Updated ${lock.name}`;
+
+      if (passcodesResult.status === "fulfilled") {
+        lock.passcodes = passcodesResult.value?.response?.passcodes || [];
+        lock.passcodesError = passcodesResult.value?.response?.warning || "";
+      } else {
+        lock.passcodes = [];
+        lock.passcodesError = this._errorText(passcodesResult.reason);
+      }
+
+      if (fingerprintsResult.status === "fulfilled") {
+        lock.fingerprints = fingerprintsResult.value?.response?.fingerprints || [];
+        lock.fingerprintsError = "";
+      } else {
+        lock.fingerprints = [];
+        lock.fingerprintsError = this._errorText(fingerprintsResult.reason);
+      }
+
+      if (historyResult.status === "fulfilled") {
+        lock.history = historyResult.value?.response?.entries || [];
+        lock.historyError = "";
+      } else {
+        lock.history = [];
+        lock.historyError = this._errorText(historyResult.reason);
+      }
+
+      this._message =
+        lock.passcodesError || lock.fingerprintsError || lock.historyError
+          ? `Updated ${lock.name} with partial data`
+          : `Updated ${lock.name}`;
       this._error = "";
     } catch (err) {
       this._error = this._errorText(err);
@@ -414,6 +442,9 @@ class TtlockBlePanel extends HTMLElement {
           </tr>
         `).join("")
       : `<tr><td colspan="5" class="empty">No passcodes yet.</td></tr>`;
+    const warning = lock.passcodesError
+      ? `<div class="section-note error-note">${lock.passcodesError}</div>`
+      : "";
 
     return `
       <section class="section">
@@ -424,6 +455,7 @@ class TtlockBlePanel extends HTMLElement {
             <button class="danger" data-action="clear-passcodes" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Clear all</button>
           </div>
         </div>
+        ${warning}
         <div class="table-wrap">
           <table>
             <thead>
@@ -451,6 +483,9 @@ class TtlockBlePanel extends HTMLElement {
           </tr>
         `).join("")
       : `<tr><td colspan="5" class="empty">No fingerprints yet.</td></tr>`;
+    const warning = lock.fingerprintsError
+      ? `<div class="section-note error-note">${lock.fingerprintsError}</div>`
+      : "";
 
     return `
       <section class="section">
@@ -460,6 +495,7 @@ class TtlockBlePanel extends HTMLElement {
             <button data-action="add-fingerprint" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Add fingerprint</button>
           </div>
         </div>
+        ${warning}
         <div class="table-wrap">
           <table>
             <thead>
@@ -484,6 +520,9 @@ class TtlockBlePanel extends HTMLElement {
           </tr>
         `).join("")
       : `<tr><td colspan="4" class="empty">No history loaded.</td></tr>`;
+    const warning = lock.historyError
+      ? `<div class="section-note error-note">${lock.historyError}</div>`
+      : "";
 
     return `
       <section class="section">
@@ -493,6 +532,7 @@ class TtlockBlePanel extends HTMLElement {
             <button data-action="refresh-lock" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Refresh history</button>
           </div>
         </div>
+        ${warning}
         <div class="table-wrap">
           <table>
             <thead>
@@ -724,6 +764,18 @@ class TtlockBlePanel extends HTMLElement {
         .empty {
           color: var(--secondary-text-color);
           font-style: italic;
+        }
+        .section-note {
+          margin: 10px 0 12px;
+          padding: 10px 12px;
+          border-radius: 8px;
+          font-size: 13px;
+          background: rgba(255, 152, 0, 0.12);
+          color: var(--primary-text-color);
+        }
+        .error-note {
+          background: rgba(244, 67, 54, 0.12);
+          color: var(--error-color, #db4437);
         }
         .loading {
           color: var(--secondary-text-color);

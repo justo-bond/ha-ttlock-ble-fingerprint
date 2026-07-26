@@ -28,6 +28,7 @@ class TtlockBleLabelsManager:
         self._data = await self._store.async_load() or {
             "passcodes": {},
             "fingerprints": {},
+            "passcode_meta": {},
         }
 
     def get_passcode_label(self, lock_mac: str, code: str) -> str | None:
@@ -100,6 +101,47 @@ class TtlockBleLabelsManager:
         """Clear all fingerprint labels for one lock."""
         assert self._data is not None
         self._data["fingerprints"].pop(lock_mac, None)
+        await self._store.async_save(self._data)
+
+    def get_passcode_meta(self, lock_mac: str) -> list[dict[str, str | None]]:
+        """Return locally cached passcode metadata for one lock."""
+        assert self._data is not None
+        scoped = self._data["passcode_meta"].get(lock_mac, {})
+        return [dict(item) for item in scoped.values()]
+
+    async def async_upsert_passcode_meta(
+        self,
+        lock_mac: str,
+        code: str,
+        *,
+        passcode_type: str,
+        start_date: str | None,
+        end_date: str | None,
+    ) -> None:
+        """Store local metadata for one passcode managed through HA."""
+        assert self._data is not None
+        scoped = self._data["passcode_meta"].setdefault(lock_mac, {})
+        scoped[code] = {
+            "code": code,
+            "type": passcode_type,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        await self._store.async_save(self._data)
+
+    async def async_delete_passcode_meta(self, lock_mac: str, code: str) -> None:
+        """Remove local metadata for one passcode."""
+        assert self._data is not None
+        scoped = self._data["passcode_meta"].get(lock_mac, {})
+        scoped.pop(code, None)
+        if not scoped:
+            self._data["passcode_meta"].pop(lock_mac, None)
+        await self._store.async_save(self._data)
+
+    async def async_clear_passcode_meta(self, lock_mac: str) -> None:
+        """Clear all locally cached passcode metadata for one lock."""
+        assert self._data is not None
+        self._data["passcode_meta"].pop(lock_mac, None)
         await self._store.async_save(self._data)
 
 
