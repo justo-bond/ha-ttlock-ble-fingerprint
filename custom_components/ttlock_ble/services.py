@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import voluptuous as vol
+from homeassistant.auth.providers.homeassistant import InvalidAuth, async_get_provider
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
@@ -480,11 +481,42 @@ async def _async_reveal_passcode(
     call: ServiceCall,
 ) -> dict[str, object]:
     """Handle `ttlock_ble.reveal_passcode`."""
-    connection = _connection_from_call(hass, call)
-    if not connection.key.adminPs:
-        raise HomeAssistantError("This lock key does not include an admin password")
-    if call.data[ATTR_ADMIN_PASSWORD].strip() != connection.key.adminPs.strip():
-        raise HomeAssistantError("Invalid admin password")
+    user_id = call.context.user_id
+    if not user_id:
+        raise HomeAssistantError("This action requires an authenticated Home Assistant user")
+
+    user = await hass.auth.async_get_user(user_id)
+    if user is None:
+        raise HomeAssistantError("Home Assistant user not found")
+    if not user.is_admin:
+        raise HomeAssistantError("Only Home Assistant administrators can reveal passcodes")
+
+    credential = next(
+        (
+            credentials
+            for credentials in user.credentials
+            if credentials.auth_provider_type == "homeassistant"
+        ),
+        None,
+    )
+    if credential is None:
+        raise HomeAssistantError(
+            "This Home Assistant user does not have a local password login"
+        )
+
+    username = credential.data.get("username")
+    if not username:
+        raise HomeAssistantError("Unable to resolve the Home Assistant username")
+
+    provider = async_get_provider(hass)
+    try:
+        await provider.async_validate_login(
+            username,
+            call.data[ATTR_ADMIN_PASSWORD].strip(),
+        )
+    except InvalidAuth as exc:
+        raise HomeAssistantError("Invalid Home Assistant password") from exc
+
     return {"passcode": call.data[ATTR_PASSCODE]}
 
 

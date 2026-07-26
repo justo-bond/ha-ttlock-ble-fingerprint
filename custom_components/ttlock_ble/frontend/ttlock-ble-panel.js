@@ -398,7 +398,7 @@ class TtlockBlePanel extends HTMLElement {
   async _submitRevealDialog(lock) {
     const adminPassword = this._form.adminPassword.trim();
     if (!adminPassword) {
-      this._error = "Enter the admin password";
+      this._error = "Enter the Home Assistant admin password";
       this._render();
       return;
     }
@@ -421,8 +421,8 @@ class TtlockBlePanel extends HTMLElement {
       this._render();
     } catch (err) {
       const message = this._errorText(err);
-      this._error = message === "Invalid admin password"
-        ? "Wrong admin password"
+      this._error = message === "Invalid Home Assistant password"
+        ? "Wrong Home Assistant admin password"
         : message;
       this._submitting = false;
       this._render();
@@ -758,7 +758,7 @@ class TtlockBlePanel extends HTMLElement {
         <div class="dialog-body">
           <div class="dialog-title">${title}</div>
           <div class="dialog-subtitle">${activeLock?.name || ""}</div>
-          ${isRevealDialog ? `<div class="section-note">The password is checked against the TTLock admin password stored in Home Assistant for this imported key.</div>` : ""}
+          ${isRevealDialog ? `<div class="section-note">The code can be revealed only after confirming the current Home Assistant administrator password.</div>` : ""}
           ${this._error && isRevealDialog ? `<div class="section-note error-note">${this._error}</div>` : ""}
           ${this._revealResult ? `<div class="section-note">Passcode: <span class="mono">${this._revealResult}</span></div>` : ""}
           <div class="form-grid">
