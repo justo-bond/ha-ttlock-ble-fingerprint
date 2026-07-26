@@ -128,14 +128,17 @@ class TtlockBlePanel extends HTMLElement {
     this._render();
   }
 
-  async _callService(service, serviceData) {
-    return this._hass.connection.sendMessagePromise({
+  async _callService(service, serviceData, { returnResponse = false } = {}) {
+    const message = {
       type: "call_service",
       domain: "ttlock_ble",
       service,
       service_data: serviceData,
-      return_response: true,
-    });
+    };
+    if (returnResponse) {
+      message.return_response = true;
+    }
+    return this._hass.connection.sendMessagePromise(message);
   }
 
   async _refreshAll() {
@@ -148,9 +151,9 @@ class TtlockBlePanel extends HTMLElement {
     this._setLockBusy(lock.id, true);
     try {
       const [passcodesResult, fingerprintsResult, historyResult] = await Promise.allSettled([
-        this._callService("list_passcodes", { lock_mac: lock.target }),
-        this._callService("list_fingerprints", { lock_mac: lock.target }),
-        this._callService("list_operation_log", { lock_mac: lock.target }),
+        this._callService("list_passcodes", { lock_mac: lock.target }, { returnResponse: true }),
+        this._callService("list_fingerprints", { lock_mac: lock.target }, { returnResponse: true }),
+        this._callService("list_operation_log", { lock_mac: lock.target }, { returnResponse: true }),
       ]);
 
       if (passcodesResult.status === "fulfilled") {
@@ -296,7 +299,7 @@ class TtlockBlePanel extends HTMLElement {
         end_date: this._serviceDateFromLocal(this._form.endAt, "9912311400"),
       };
       if (this._dialogKind === "passcode-add") {
-        await this._callService("add_passcode", { ...payload, passcode: code });
+        await this._callService("add_passcode", { ...payload, passcode: code }, { returnResponse: true });
       } else {
         await this._callService("update_passcode", {
           ...payload,
@@ -365,7 +368,7 @@ class TtlockBlePanel extends HTMLElement {
         start_date: "200001010000",
         end_date: "209912312359",
         scan_timeout: 45,
-      });
+      }, { returnResponse: true });
       const fingerprint = result?.response?.fingerprint;
       if (fingerprint?.fingerprint_number) {
         const label = window.prompt(
