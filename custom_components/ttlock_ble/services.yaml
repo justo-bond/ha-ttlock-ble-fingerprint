@@ -53,9 +53,31 @@ list_fingerprints:
       selector:
         text:
 
+get_auto_lock:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+
 list_passcodes:
   fields:
     lock_mac:
+      required: true
+      selector:
+        text:
+
+reveal_passcode:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    passcode:
+      required: true
+      selector:
+        text:
+    admin_password:
       required: true
       selector:
         text:
@@ -144,6 +166,20 @@ clear_passcodes:
       required: true
       selector:
         text:
+
+set_auto_lock:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    auto_lock_seconds:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 65535
+          unit_of_measurement: s
 
 clear_fingerprints:
   fields:

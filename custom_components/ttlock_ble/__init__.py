@@ -22,7 +22,7 @@ from .data import TtlockBleData, TtlockBlePasscodeDraft
 from .frontend import async_register_frontend
 from .services import async_setup_services
 
-INTEGRATION_VERSION = "3.8.3"
+INTEGRATION_VERSION = "3.8.4"
 
 if TYPE_CHECKING:
     from homeassistant.components.bluetooth import (

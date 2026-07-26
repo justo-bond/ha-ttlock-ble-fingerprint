@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from .connection import TtlockBleConnection
     from .data import TtlockBleConfigEntry
 
+ATTR_ADMIN_PASSWORD = "admin_password"
+ATTR_AUTO_LOCK_SECONDS = "auto_lock_seconds"
 ATTR_END_DATE = "end_date"
 ATTR_FINGERPRINT_NUMBER = "fingerprint_number"
 ATTR_LABEL = "label"
@@ -40,6 +42,9 @@ SERVICE_DELETE_FINGERPRINT = "delete_fingerprint"
 SERVICE_LIST_OPERATION_LOG = "list_operation_log"
 SERVICE_LIST_PASSCODES = "list_passcodes"
 SERVICE_LIST_FINGERPRINTS = "list_fingerprints"
+SERVICE_GET_AUTO_LOCK = "get_auto_lock"
+SERVICE_REVEAL_PASSCODE = "reveal_passcode"
+SERVICE_SET_AUTO_LOCK = "set_auto_lock"
 SERVICE_SET_FINGERPRINT_LABEL = "set_fingerprint_label"
 SERVICE_SET_PASSCODE_LABEL = "set_passcode_label"
 SERVICE_UPDATE_PASSCODE = "update_passcode"
@@ -81,7 +86,24 @@ ADD_FINGERPRINT_SCHEMA = vol.Schema(
     },
 )
 LIST_FINGERPRINTS_SCHEMA = vol.Schema(_LOCK_SCHEMA)
+GET_AUTO_LOCK_SCHEMA = vol.Schema(_LOCK_SCHEMA)
 LIST_OPERATION_LOG_SCHEMA = vol.Schema(_LOCK_SCHEMA)
+REVEAL_PASSCODE_SCHEMA = vol.Schema(
+    {
+        **_LOCK_SCHEMA,
+        vol.Required(ATTR_PASSCODE): _PASSCODE,
+        vol.Required(ATTR_ADMIN_PASSWORD): str,
+    },
+)
+SET_AUTO_LOCK_SCHEMA = vol.Schema(
+    {
+        **_LOCK_SCHEMA,
+        vol.Required(ATTR_AUTO_LOCK_SECONDS): vol.All(
+            vol.Coerce(int),
+            vol.Range(min=0, max=65535),
+        ),
+    },
+)
 UPDATE_FINGERPRINT_SCHEMA = vol.Schema(
     {
         **_LOCK_SCHEMA,
@@ -167,6 +189,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def async_list_operation_log(call: ServiceCall) -> dict[str, object]:
         return await _async_list_operation_log(hass, call)
 
+    async def async_get_auto_lock(call: ServiceCall) -> dict[str, object]:
+        return await _async_get_auto_lock(hass, call)
+
+    async def async_reveal_passcode(call: ServiceCall) -> dict[str, object]:
+        return await _async_reveal_passcode(hass, call)
+
     async def async_update_passcode(call: ServiceCall) -> None:
         await _async_update_passcode(hass, call)
 
@@ -190,6 +218,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def async_set_passcode_label(call: ServiceCall) -> None:
         await _async_set_passcode_label(hass, call)
+
+    async def async_set_auto_lock(call: ServiceCall) -> None:
+        await _async_set_auto_lock(hass, call)
 
     hass.services.async_register(
         DOMAIN,
@@ -221,9 +252,23 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_GET_AUTO_LOCK,
+        async_get_auto_lock,
+        schema=GET_AUTO_LOCK_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_LIST_OPERATION_LOG,
         async_list_operation_log,
         schema=LIST_OPERATION_LOG_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REVEAL_PASSCODE,
+        async_reveal_passcode,
+        schema=REVEAL_PASSCODE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
@@ -273,6 +318,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SET_PASSCODE_LABEL,
         async_set_passcode_label,
         schema=SET_PASSCODE_LABEL_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_AUTO_LOCK,
+        async_set_auto_lock,
+        schema=SET_AUTO_LOCK_SCHEMA,
     )
 
 
@@ -411,6 +462,32 @@ async def _async_list_operation_log(
     return {"entries": [_log_entry_response(item) for item in entries]}
 
 
+async def _async_get_auto_lock(
+    hass: HomeAssistant,
+    call: ServiceCall,
+) -> dict[str, object]:
+    """Handle `ttlock_ble.get_auto_lock`."""
+    connection = _connection_from_call(hass, call)
+    try:
+        seconds = await connection.async_get_auto_lock_time()
+    except TTLockError as exc:
+        raise HomeAssistantError(str(exc)) from exc
+    return {"auto_lock_seconds": seconds}
+
+
+async def _async_reveal_passcode(
+    hass: HomeAssistant,
+    call: ServiceCall,
+) -> dict[str, object]:
+    """Handle `ttlock_ble.reveal_passcode`."""
+    connection = _connection_from_call(hass, call)
+    if not connection.key.adminPs:
+        raise HomeAssistantError("This lock key does not include an admin password")
+    if call.data[ATTR_ADMIN_PASSWORD].strip() != connection.key.adminPs.strip():
+        raise HomeAssistantError("Invalid admin password")
+    return {"passcode": call.data[ATTR_PASSCODE]}
+
+
 async def _async_update_fingerprint(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle `ttlock_ble.update_fingerprint`."""
     connection = _connection_from_call(hass, call)
@@ -531,6 +608,15 @@ async def _async_set_passcode_label(hass: HomeAssistant, call: ServiceCall) -> N
         call.data[ATTR_PASSCODE],
         call.data[ATTR_LABEL].strip(),
     )
+
+
+async def _async_set_auto_lock(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle `ttlock_ble.set_auto_lock`."""
+    connection = _connection_from_call(hass, call)
+    try:
+        await connection.async_set_auto_lock_time(call.data[ATTR_AUTO_LOCK_SECONDS])
+    except TTLockError as exc:
+        raise HomeAssistantError(str(exc)) from exc
 
 
 def _connection_from_call(

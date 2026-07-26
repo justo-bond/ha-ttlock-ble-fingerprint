@@ -11,6 +11,8 @@ class TtlockBlePanel extends HTMLElement {
     this._submitting = false;
     this._dialogKind = "passcode-add";
     this._activeLockId = null;
+    this._activePasscodeCode = null;
+    this._revealedPasscodes = {};
     this._form = this._defaultForm();
   }
 
@@ -41,6 +43,7 @@ class TtlockBlePanel extends HTMLElement {
       code: "",
       oldCode: "",
       label: "",
+      adminPassword: "",
       type: "period",
       startAt: this._toDateTimeLocal(now),
       endAt: this._toDateTimeLocal(later),
@@ -104,19 +107,29 @@ class TtlockBlePanel extends HTMLElement {
       id,
       name: name.replace(/\s+(Lock|Passcodes|Fingerprints)$/i, ""),
       target: lockEntityId || name,
+      lockEntityId,
       busy: false,
       battery: batteryEntry ? this._hass.states[batteryEntry.ei]?.state || null : null,
       passcodes: [],
       fingerprints: [],
       history: [],
+      autoLockSeconds: null,
       passcodesError: "",
       fingerprintsError: "",
       historyError: "",
+      autoLockError: "",
     };
   }
 
   _friendlyName(entityId) {
     return entityId ? this._hass.states[entityId]?.attributes?.friendly_name || null : null;
+  }
+
+  _lockStateLabel(lock) {
+    const state = lock.lockEntityId ? this._hass.states[lock.lockEntityId]?.state : null;
+    if (state === "locked") return "Locked";
+    if (state === "unlocked") return "Unlocked";
+    return "Unknown";
   }
 
   _setLockBusy(lockId, busy) {
@@ -150,10 +163,11 @@ class TtlockBlePanel extends HTMLElement {
   async _refreshLock(lock) {
     this._setLockBusy(lock.id, true);
     try {
-      const [passcodesResult, fingerprintsResult, historyResult] = await Promise.allSettled([
+      const [passcodesResult, fingerprintsResult, historyResult, autoLockResult] = await Promise.allSettled([
         this._callService("list_passcodes", { lock_mac: lock.target }, { returnResponse: true }),
         this._callService("list_fingerprints", { lock_mac: lock.target }, { returnResponse: true }),
         this._callService("list_operation_log", { lock_mac: lock.target }, { returnResponse: true }),
+        this._callService("get_auto_lock", { lock_mac: lock.target }, { returnResponse: true }),
       ]);
 
       if (passcodesResult.status === "fulfilled") {
@@ -180,8 +194,16 @@ class TtlockBlePanel extends HTMLElement {
         lock.historyError = this._errorText(historyResult.reason);
       }
 
+      if (autoLockResult.status === "fulfilled") {
+        lock.autoLockSeconds = autoLockResult.value?.response?.auto_lock_seconds ?? null;
+        lock.autoLockError = "";
+      } else {
+        lock.autoLockSeconds = null;
+        lock.autoLockError = this._errorText(autoLockResult.reason);
+      }
+
       this._message =
-        lock.passcodesError || lock.fingerprintsError || lock.historyError
+        lock.passcodesError || lock.fingerprintsError || lock.historyError || lock.autoLockError
           ? `Updated ${lock.name} with partial data`
           : `Updated ${lock.name}`;
       this._error = "";
@@ -235,10 +257,12 @@ class TtlockBlePanel extends HTMLElement {
     const later = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     this._dialogKind = passcode ? "passcode-edit" : "passcode-add";
     this._activeLockId = lock.id;
+    this._activePasscodeCode = passcode?.code || null;
     this._form = {
       code: passcode?.code || "",
       oldCode: passcode?.code || "",
       label: passcode?.label || "",
+      adminPassword: "",
       type: passcode?.type === "permanent" ? "permanent" : "period",
       startAt: passcode?.start_date ? this._toDateTimeLocal(passcode.start_date) : this._toDateTimeLocal(now),
       endAt: passcode?.end_date ? this._toDateTimeLocal(passcode.end_date) : this._toDateTimeLocal(later),
@@ -257,8 +281,38 @@ class TtlockBlePanel extends HTMLElement {
   _closeDialog() {
     this._dialogOpen = false;
     this._submitting = false;
+    this._activePasscodeCode = null;
     this.shadowRoot.querySelector("dialog")?.close();
     this._render();
+  }
+
+  _openRevealPasscodeDialog(lock, passcode) {
+    this._dialogKind = "passcode-reveal";
+    this._activeLockId = lock.id;
+    this._activePasscodeCode = passcode.code;
+    this._form = {
+      ...this._defaultForm(),
+      adminPassword: "",
+      code: passcode.code || "",
+      label: passcode.label || "",
+    };
+    this._dialogOpen = true;
+    this._submitting = false;
+    this._message = "";
+    this._error = "";
+    this._render();
+    const dialog = this.shadowRoot.querySelector("dialog");
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+    }
+  }
+
+  _passcodeKey(lock, passcode) {
+    return `${lock.id}::${passcode.code}`;
+  }
+
+  _maskedPasscode(passcode) {
+    return "*".repeat(String(passcode?.code || "").length || 4);
   }
 
   _onFormInput(event) {
@@ -269,6 +323,11 @@ class TtlockBlePanel extends HTMLElement {
   async _submitDialog() {
     const lock = this._locks.find((item) => item.id === this._activeLockId);
     if (!lock) {
+      return;
+    }
+
+    if (this._dialogKind === "passcode-reveal") {
+      await this._submitRevealDialog(lock);
       return;
     }
 
@@ -316,6 +375,35 @@ class TtlockBlePanel extends HTMLElement {
       this._message = this._dialogKind === "passcode-add"
         ? `Passcode added for ${lock.name}`
         : `Passcode updated for ${lock.name}`;
+      this._closeDialog();
+    } catch (err) {
+      this._error = this._errorText(err);
+      this._submitting = false;
+      this._render();
+    }
+  }
+
+  async _submitRevealDialog(lock) {
+    const adminPassword = this._form.adminPassword.trim();
+    if (!adminPassword) {
+      this._error = "Enter the admin password";
+      this._render();
+      return;
+    }
+
+    this._submitting = true;
+    this._error = "";
+    this._render();
+
+    try {
+      const result = await this._callService("reveal_passcode", {
+        lock_mac: lock.target,
+        passcode: this._activePasscodeCode,
+        admin_password: adminPassword,
+      }, { returnResponse: true });
+      this._revealedPasscodes[this._passcodeKey(lock, { code: this._activePasscodeCode })] =
+        result?.response?.passcode || this._activePasscodeCode;
+      this._message = `Passcode revealed for ${lock.name}`;
       this._closeDialog();
     } catch (err) {
       this._error = this._errorText(err);
@@ -424,6 +512,37 @@ class TtlockBlePanel extends HTMLElement {
       });
       await this._refreshLock(lock);
       this._message = `Fingerprint deleted from ${lock.name}`;
+    } catch (err) {
+      this._error = this._errorText(err);
+      this._setLockBusy(lock.id, false);
+    }
+  }
+
+  async _setAutoLock(lock) {
+    const current = lock.autoLockSeconds ?? 0;
+    const value = window.prompt(
+      "Auto-lock delay in seconds (0 disables auto-lock):",
+      String(current),
+    );
+    if (value === null) {
+      return;
+    }
+    const seconds = Number.parseInt(value, 10);
+    if (Number.isNaN(seconds) || seconds < 0 || seconds > 65535) {
+      this._error = "Auto-lock must be between 0 and 65535 seconds";
+      this._render();
+      return;
+    }
+    this._setLockBusy(lock.id, true);
+    try {
+      await this._callService("set_auto_lock", {
+        lock_mac: lock.target,
+        auto_lock_seconds: seconds,
+      });
+      await this._refreshLock(lock);
+      this._message = seconds === 0
+        ? `Auto-lock disabled for ${lock.name}`
+        : `Auto-lock set to ${seconds}s for ${lock.name}`;
     } catch (err) {
       this._error = this._errorText(err);
       this._setLockBusy(lock.id, false);
@@ -548,18 +667,52 @@ class TtlockBlePanel extends HTMLElement {
     `;
   }
 
+  _renderLockControls(lock) {
+    const autoLockLabel =
+      lock.autoLockSeconds === null
+        ? "Unknown"
+        : lock.autoLockSeconds === 0
+          ? "Disabled"
+          : `${lock.autoLockSeconds}s`;
+    const warning = lock.autoLockError
+      ? `<div class="section-note error-note">${lock.autoLockError}</div>`
+      : "";
+    return `
+      <section class="section">
+        <div class="section-header">
+          <h3>Lock</h3>
+          <div class="toolbar">
+            <button data-action="set-auto-lock" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Auto-close</button>
+          </div>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-item">
+            <div class="detail-label">State</div>
+            <div class="detail-value">${this._lockStateLabel(lock)}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Auto-close</div>
+            <div class="detail-value">${autoLockLabel}</div>
+          </div>
+        </div>
+        ${warning}
+      </section>
+    `;
+  }
+
   _renderLock(lock) {
     return `
       <article class="lock-card">
         <div class="lock-header">
           <div>
             <h2>${lock.name}</h2>
-            <div class="meta">${lock.battery ? `Battery ${lock.battery}%` : "Battery unknown"}</div>
+            <div class="meta">${this._lockStateLabel(lock)}${lock.battery ? ` • Battery ${lock.battery}%` : ""}</div>
           </div>
           <div class="toolbar">
             <button data-action="refresh-lock" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Refresh</button>
           </div>
         </div>
+        ${this._renderLockControls(lock)}
         ${this._renderPasscodes(lock)}
         ${this._renderFingerprints(lock)}
         ${this._renderHistory(lock)}
@@ -632,6 +785,7 @@ class TtlockBlePanel extends HTMLElement {
         if (action === "add-passcode") return this._openPasscodeDialog(lock);
         if (action === "clear-passcodes") return this._clearPasscodes(lock);
         if (action === "add-fingerprint") return this._addFingerprint(lock);
+        if (action === "set-auto-lock") return this._setAutoLock(lock);
 
         if (action === "edit-passcode" || action === "delete-passcode") {
           const passcode = lock.passcodes.find((item) => item.code === target.dataset.code);
@@ -767,6 +921,26 @@ class TtlockBlePanel extends HTMLElement {
         .empty {
           color: var(--secondary-text-color);
           font-style: italic;
+        }
+        .detail-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 12px;
+          margin-top: 10px;
+        }
+        .detail-item {
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          padding: 12px;
+        }
+        .detail-label {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          margin-bottom: 6px;
+        }
+        .detail-value {
+          font-size: 15px;
+          font-weight: 600;
         }
         .section-note {
           margin: 10px 0 12px;

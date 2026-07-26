@@ -428,6 +428,32 @@ class TtlockBleConnection:
                 await self._async_disconnect_locked()
                 raise
 
+    async def async_get_auto_lock_time(self) -> int:
+        """Read the lock's auto-lock delay in seconds."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                return await client.get_auto_lock_time()
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
+    async def async_set_auto_lock_time(self, seconds: int) -> None:
+        """Set the lock's auto-lock delay in seconds."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
+                raise TTLockError(msg)
+            try:
+                await client.set_auto_lock_time(seconds)
+            except TTLockError:
+                await self._async_disconnect_locked()
+                raise
+
     async def _async_refresh_fingerprints_locked(
         self,
         client: TTLockClient,
