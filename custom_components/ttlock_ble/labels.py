@@ -29,6 +29,8 @@ class TtlockBleLabelsManager:
             "passcodes": {},
             "fingerprints": {},
             "passcode_meta": {},
+            "camera_entities": {},
+            "history_media": {},
         }
 
     def get_passcode_label(self, lock_mac: str, code: str) -> str | None:
@@ -142,6 +144,59 @@ class TtlockBleLabelsManager:
         """Clear all locally cached passcode metadata for one lock."""
         assert self._data is not None
         self._data["passcode_meta"].pop(lock_mac, None)
+        await self._store.async_save(self._data)
+
+    def get_camera_entity(self, lock_mac: str) -> str | None:
+        """Return the linked camera entity for one lock, if configured."""
+        assert self._data is not None
+        return self._data["camera_entities"].get(lock_mac)
+
+    async def async_set_camera_entity(self, lock_mac: str, entity_id: str) -> None:
+        """Store or clear the linked camera entity for one lock."""
+        assert self._data is not None
+        if entity_id:
+            self._data["camera_entities"][lock_mac] = entity_id
+        else:
+            self._data["camera_entities"].pop(lock_mac, None)
+        await self._store.async_save(self._data)
+
+    def get_history_media(
+        self,
+        lock_mac: str,
+        history_key: str,
+    ) -> dict[str, str] | None:
+        """Return locally linked media for one history record, if any."""
+        assert self._data is not None
+        scoped = self._data["history_media"].get(lock_mac, {})
+        item = scoped.get(history_key)
+        return dict(item) if item else None
+
+    async def async_set_history_media(
+        self,
+        lock_mac: str,
+        history_key: str,
+        *,
+        media_url: str,
+        content_type: str,
+        label: str,
+    ) -> None:
+        """Store or replace media attached to one history record."""
+        assert self._data is not None
+        scoped = self._data["history_media"].setdefault(lock_mac, {})
+        scoped[history_key] = {
+            "media_url": media_url,
+            "content_type": content_type,
+            "label": label,
+        }
+        await self._store.async_save(self._data)
+
+    async def async_delete_history_media(self, lock_mac: str, history_key: str) -> None:
+        """Delete one linked media item from lock history."""
+        assert self._data is not None
+        scoped = self._data["history_media"].get(lock_mac, {})
+        scoped.pop(history_key, None)
+        if not scoped:
+            self._data["history_media"].pop(lock_mac, None)
         await self._store.async_save(self._data)
 
 

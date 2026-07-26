@@ -5,6 +5,7 @@ class TtlockBlePanel extends HTMLElement {
     this._hass = null;
     this._loading = false;
     this._locks = [];
+    this._cameraEntities = [];
     this._message = "";
     this._error = "";
     this._dialogOpen = false;
@@ -94,6 +95,14 @@ class TtlockBlePanel extends HTMLElement {
       .map(([id, items]) => this._buildLock(id, items))
       .filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    this._cameraEntities = Object.values(this._hass.states)
+      .filter((state) => state.entity_id.startsWith("camera."))
+      .map((state) => ({
+        entity_id: state.entity_id,
+        name: state.attributes.friendly_name || state.entity_id,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   _buildLock(id, items) {
@@ -120,6 +129,7 @@ class TtlockBlePanel extends HTMLElement {
       fingerprints: [],
       history: [],
       autoLockSeconds: null,
+      cameraEntityId: "",
       passcodesError: "",
       fingerprintsError: "",
       historyError: "",
@@ -194,6 +204,7 @@ class TtlockBlePanel extends HTMLElement {
 
       if (historyResult.status === "fulfilled") {
         lock.history = historyResult.value?.response?.entries || [];
+        lock.cameraEntityId = historyResult.value?.response?.camera_entity_id || "";
         lock.historyError = "";
       } else {
         lock.history = [];
@@ -264,7 +275,7 @@ class TtlockBlePanel extends HTMLElement {
 
   _displayDate(value) {
     if (!value) {
-      return "—";
+      return "-";
     }
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -600,9 +611,9 @@ class TtlockBlePanel extends HTMLElement {
       ? lock.passcodes.map((passcode) => `
           <tr>
             <td class="mono">${this._revealedPasscodes[this._passcodeKey(lock, passcode)] || this._maskedPasscode(passcode)}</td>
-            <td>${passcode.label || "—"}</td>
+            <td>${passcode.label || "-"}</td>
             <td>${passcode.type || "unknown"}</td>
-            <td>${passcode.type === "permanent" ? "Permanent" : `${this._displayDate(passcode.start_date)} → ${this._displayDate(passcode.end_date)}`}</td>
+            <td>${passcode.type === "permanent" ? "Permanent" : `${this._displayDate(passcode.start_date)}  ->  ${this._displayDate(passcode.end_date)}`}</td>
             <td class="actions">
               <button data-action="reveal-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Show</button>
               <button data-action="edit-passcode" data-lock-id="${lock.id}" data-code="${passcode.code}">Edit</button>
@@ -642,8 +653,8 @@ class TtlockBlePanel extends HTMLElement {
       ? lock.fingerprints.map((fingerprint) => `
           <tr>
             <td class="mono">${fingerprint.fingerprint_number || "?"}</td>
-            <td>${fingerprint.label || "—"}</td>
-            <td>${this._displayDate(fingerprint.start_date)} в†’ ${this._displayDate(fingerprint.end_date)}</td>
+            <td>${fingerprint.label || "-"}</td>
+            <td>${this._displayDate(fingerprint.start_date)}  ->  ${this._displayDate(fingerprint.end_date)}</td>
             <td class="actions">
               <button data-action="edit-fingerprint-label" data-lock-id="${lock.id}" data-fingerprint-number="${fingerprint.fingerprint_number}">Owner</button>
               <button class="danger" data-action="delete-fingerprint" data-lock-id="${lock.id}" data-fingerprint-number="${fingerprint.fingerprint_number}">Delete</button>
@@ -677,17 +688,27 @@ class TtlockBlePanel extends HTMLElement {
   }
 
   _renderHistory(lock) {
-    const entries = lock.history.slice(0, 20);
+    const entries = [...lock.history]
+      .sort((a, b) => (b.operate_date || "").localeCompare(a.operate_date || ""))
+      .slice(0, 20);
     const rows = entries.length
       ? entries.map((entry) => `
           <tr>
             <td>${this._displayDate(entry.operate_date)}</td>
-            <td>${entry.record_type || "unknown"}</td>
-            <td>${entry.password || "—"}</td>
-            <td>${entry.lock_battery ?? "—"}%</td>
+            <td>${entry.record_type_label || entry.record_type || "unknown"}</td>
+            <td>${entry.credential_label || "-"}</td>
+            <td>${entry.password || entry.uid || entry.key_id || "-"}</td>
+            <td>${entry.lock_battery ?? "-"}%</td>
+            <td>${entry.media_url ? `
+              <a href="${entry.media_url}" target="_blank" rel="noreferrer">
+                ${entry.media_type === "image"
+                  ? `<img class="history-thumb" src="${entry.media_url}" alt="${entry.media_label || "Snapshot"}" />`
+                  : (entry.media_label || "Open media")}
+              </a>
+            ` : "-"}</td>
           </tr>
         `).join("")
-      : `<tr><td colspan="4" class="empty">No history loaded.</td></tr>`;
+      : `<tr><td colspan="6" class="empty">No history loaded.</td></tr>`;
     const warning = lock.historyError
       ? `<div class="section-note error-note">${lock.historyError}</div>`
       : "";
@@ -704,7 +725,7 @@ class TtlockBlePanel extends HTMLElement {
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Time</th><th>Action</th><th>Credential</th><th>Battery</th></tr>
+              <tr><th>Time</th><th>Action</th><th>Owner</th><th>Credential</th><th>Battery</th><th>Media</th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
@@ -712,7 +733,6 @@ class TtlockBlePanel extends HTMLElement {
       </section>
     `;
   }
-
   _renderLockControls(lock) {
     const autoLockOptions = [0, 5, 10, 15, 30, 60, 120, 300, 600];
     const autoLockLabel =
@@ -750,20 +770,32 @@ class TtlockBlePanel extends HTMLElement {
               </select>
             </div>
           </div>
+          <div class="detail-item">
+            <div class="detail-label">Camera</div>
+            <div class="detail-value">
+              <select data-action="set-camera-entity-select" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>
+                <option value="">Not linked</option>
+                ${this._cameraEntities.map((camera) => `
+                  <option value="${camera.entity_id}" ${lock.cameraEntityId === camera.entity_id ? "selected" : ""}>
+                    ${camera.name}
+                  </option>
+                `).join("")}
+              </select>
+            </div>
+          </div>
         </div>
-        <div class="section-note">Current setting: ${autoLockLabel}</div>
+        <div class="section-note">Current setting: ${autoLockLabel}${lock.cameraEntityId ? `  *  Camera: ${lock.cameraEntityId}` : ""}</div>
         ${warning}
       </section>
     `;
   }
-
   _renderLock(lock) {
     return `
       <article class="lock-card">
         <div class="lock-header">
           <div>
             <h2>${lock.name}</h2>
-            <div class="meta">${this._lockStateLabel(lock)}${lock.battery ? ` • Battery ${lock.battery}%` : ""}</div>
+            <div class="meta">${this._lockStateLabel(lock)}${lock.battery ? `  *  Battery ${lock.battery}%` : ""}</div>
           </div>
           <div class="toolbar">
             <button data-action="refresh-lock" data-lock-id="${lock.id}" ${lock.busy ? "disabled" : ""}>Refresh</button>
@@ -916,6 +948,29 @@ class TtlockBlePanel extends HTMLElement {
         this._setAutoLock(lock, target.value);
       });
     });
+
+    this.shadowRoot.querySelectorAll('[data-action="set-camera-entity-select"]').forEach((select) => {
+      select.addEventListener("change", async (event) => {
+        const target = event.currentTarget;
+        const lock = this._locks.find((item) => item.id === target.dataset.lockId);
+        if (!lock) return;
+        this._setLockBusy(lock.id, true);
+        this._error = "";
+        try {
+          await this._callService("set_camera_entity", {
+            lock_mac: lock.target,
+            camera_entity_id: target.value,
+          });
+          await this._refreshLock(lock);
+          this._message = target.value
+            ? `Camera linked for ${lock.name}`
+            : `Camera unlinked for ${lock.name}`;
+        } catch (err) {
+          this._error = this._errorText(err);
+          this._setLockBusy(lock.id, false);
+        }
+      });
+    });
   }
 
   _render() {
@@ -1016,6 +1071,14 @@ class TtlockBlePanel extends HTMLElement {
         .empty {
           color: var(--secondary-text-color);
           font-style: italic;
+        }
+        .history-thumb {
+          display: block;
+          width: 84px;
+          height: 56px;
+          object-fit: cover;
+          border-radius: 6px;
+          border: 1px solid var(--divider-color);
         }
         .detail-grid {
           display: grid;
@@ -1122,3 +1185,5 @@ class TtlockBlePanel extends HTMLElement {
 }
 
 customElements.define("ttlock-ble-panel", TtlockBlePanel);
+
+

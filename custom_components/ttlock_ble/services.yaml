@@ -60,6 +60,44 @@ get_auto_lock:
       selector:
         text:
 
+set_camera_entity:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    camera_entity_id:
+      required: false
+      selector:
+        entity:
+          domain: camera
+
+attach_history_media:
+  fields:
+    lock_mac:
+      required: true
+      selector:
+        text:
+    history_key:
+      required: true
+      selector:
+        text:
+    media_url:
+      required: true
+      selector:
+        text:
+    content_type:
+      default: "image"
+      selector:
+        select:
+          options:
+            - "image"
+            - "video"
+    label:
+      required: false
+      selector:
+        text:
+
 list_passcodes:
   fields:
     lock_mac:

@@ -23,10 +23,14 @@ if TYPE_CHECKING:
 
 ATTR_ADMIN_PASSWORD = "admin_password"
 ATTR_AUTO_LOCK_SECONDS = "auto_lock_seconds"
+ATTR_CAMERA_ENTITY_ID = "camera_entity_id"
+ATTR_CONTENT_TYPE = "content_type"
 ATTR_END_DATE = "end_date"
 ATTR_FINGERPRINT_NUMBER = "fingerprint_number"
+ATTR_HISTORY_KEY = "history_key"
 ATTR_LABEL = "label"
 ATTR_LOCK_MAC = "lock_mac"
+ATTR_MEDIA_URL = "media_url"
 ATTR_NEW_PASSCODE = "new_passcode"
 ATTR_OLD_PASSCODE = "old_passcode"
 ATTR_PASSCODE = "passcode"
@@ -40,11 +44,13 @@ SERVICE_CLEAR_PASSCODES = "clear_passcodes"
 SERVICE_CLEAR_FINGERPRINTS = "clear_fingerprints"
 SERVICE_DELETE_PASSCODE = "delete_passcode"
 SERVICE_DELETE_FINGERPRINT = "delete_fingerprint"
+SERVICE_ATTACH_HISTORY_MEDIA = "attach_history_media"
 SERVICE_LIST_OPERATION_LOG = "list_operation_log"
 SERVICE_LIST_PASSCODES = "list_passcodes"
 SERVICE_LIST_FINGERPRINTS = "list_fingerprints"
 SERVICE_GET_AUTO_LOCK = "get_auto_lock"
 SERVICE_REVEAL_PASSCODE = "reveal_passcode"
+SERVICE_SET_CAMERA_ENTITY = "set_camera_entity"
 SERVICE_SET_AUTO_LOCK = "set_auto_lock"
 SERVICE_SET_FINGERPRINT_LABEL = "set_fingerprint_label"
 SERVICE_SET_PASSCODE_LABEL = "set_passcode_label"
@@ -89,6 +95,15 @@ ADD_FINGERPRINT_SCHEMA = vol.Schema(
 LIST_FINGERPRINTS_SCHEMA = vol.Schema(_LOCK_SCHEMA)
 GET_AUTO_LOCK_SCHEMA = vol.Schema(_LOCK_SCHEMA)
 LIST_OPERATION_LOG_SCHEMA = vol.Schema(_LOCK_SCHEMA)
+ATTACH_HISTORY_MEDIA_SCHEMA = vol.Schema(
+    {
+        **_LOCK_SCHEMA,
+        vol.Required(ATTR_HISTORY_KEY): str,
+        vol.Required(ATTR_MEDIA_URL): str,
+        vol.Optional(ATTR_CONTENT_TYPE, default="image"): vol.In({"image", "video"}),
+        vol.Optional(ATTR_LABEL, default=""): str,
+    },
+)
 REVEAL_PASSCODE_SCHEMA = vol.Schema(
     {
         **_LOCK_SCHEMA,
@@ -103,6 +118,12 @@ SET_AUTO_LOCK_SCHEMA = vol.Schema(
             vol.Coerce(int),
             vol.Range(min=0, max=65535),
         ),
+    },
+)
+SET_CAMERA_ENTITY_SCHEMA = vol.Schema(
+    {
+        **_LOCK_SCHEMA,
+        vol.Optional(ATTR_CAMERA_ENTITY_ID, default=""): str,
     },
 )
 UPDATE_FINGERPRINT_SCHEMA = vol.Schema(
@@ -190,6 +211,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def async_list_operation_log(call: ServiceCall) -> dict[str, object]:
         return await _async_list_operation_log(hass, call)
 
+    async def async_attach_history_media(call: ServiceCall) -> None:
+        await _async_attach_history_media(hass, call)
+
     async def async_get_auto_lock(call: ServiceCall) -> dict[str, object]:
         return await _async_get_auto_lock(hass, call)
 
@@ -222,6 +246,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def async_set_auto_lock(call: ServiceCall) -> None:
         await _async_set_auto_lock(hass, call)
+
+    async def async_set_camera_entity(call: ServiceCall) -> None:
+        await _async_set_camera_entity(hass, call)
 
     hass.services.async_register(
         DOMAIN,
@@ -264,6 +291,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         async_list_operation_log,
         schema=LIST_OPERATION_LOG_SCHEMA,
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ATTACH_HISTORY_MEDIA,
+        async_attach_history_media,
+        schema=ATTACH_HISTORY_MEDIA_SCHEMA,
     )
     hass.services.async_register(
         DOMAIN,
@@ -325,6 +358,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SET_AUTO_LOCK,
         async_set_auto_lock,
         schema=SET_AUTO_LOCK_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_CAMERA_ENTITY,
+        async_set_camera_entity,
+        schema=SET_CAMERA_ENTITY_SCHEMA,
     )
 
 
@@ -453,6 +492,7 @@ async def _async_list_operation_log(
 ) -> dict[str, object]:
     """Handle `ttlock_ble.list_operation_log`."""
     connection = _connection_from_call(hass, call)
+    labels = await async_get_labels_manager(hass)
     try:
         entries = await connection.async_get_operation_log(
             dispatch=False,
@@ -460,7 +500,17 @@ async def _async_list_operation_log(
         )
     except TTLockError as exc:
         raise HomeAssistantError(str(exc)) from exc
-    return {"entries": [_log_entry_response(item) for item in entries]}
+    return {
+        "entries": [
+            _log_entry_response(
+                connection.key.lockMac,
+                item,
+                labels=labels,
+            )
+            for item in entries
+        ],
+        "camera_entity_id": labels.get_camera_entity(connection.key.lockMac),
+    }
 
 
 async def _async_get_auto_lock(
@@ -651,6 +701,29 @@ async def _async_set_auto_lock(hass: HomeAssistant, call: ServiceCall) -> None:
         raise HomeAssistantError(str(exc)) from exc
 
 
+async def _async_set_camera_entity(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle `ttlock_ble.set_camera_entity`."""
+    connection = _connection_from_call(hass, call)
+    labels = await async_get_labels_manager(hass)
+    await labels.async_set_camera_entity(
+        connection.key.lockMac,
+        call.data[ATTR_CAMERA_ENTITY_ID].strip(),
+    )
+
+
+async def _async_attach_history_media(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle `ttlock_ble.attach_history_media`."""
+    connection = _connection_from_call(hass, call)
+    labels = await async_get_labels_manager(hass)
+    await labels.async_set_history_media(
+        connection.key.lockMac,
+        call.data[ATTR_HISTORY_KEY],
+        media_url=call.data[ATTR_MEDIA_URL].strip(),
+        content_type=call.data[ATTR_CONTENT_TYPE],
+        label=call.data[ATTR_LABEL].strip(),
+    )
+
+
 def _connection_from_call(
     hass: HomeAssistant,
     call: ServiceCall,
@@ -710,28 +783,59 @@ def _passcode_response(
     }
 
 
-def _log_entry_response(entry: LogEntry) -> dict[str, object | None]:
+def _log_entry_response(
+    lock_mac: str,
+    entry: LogEntry,
+    *,
+    labels,
+) -> dict[str, object | None]:
     """Convert an operation log entry to a service response payload."""
     record_type = (
         entry.record_type.name.lower()
         if hasattr(entry.record_type, "name")
         else str(entry.record_type)
     )
+    history_key = _history_key(entry)
+    media = labels.get_history_media(lock_mac, history_key)
+    passcode_label = (
+        labels.get_passcode_label(lock_mac, entry.password)
+        if entry.password is not None
+        else None
+    )
     return {
+        "history_key": history_key,
         "record_number": entry.record_number,
         "record_type": record_type,
+        "record_type_label": record_type.replace("_", " ").title(),
         "operate_date": entry.operate_date.isoformat() if entry.operate_date else None,
         "lock_battery": entry.lock_battery,
         "uid": entry.uid,
         "record_id": entry.record_id,
         "password": entry.password,
+        "credential_label": passcode_label,
         "new_password": entry.new_password,
         "delete_date": entry.delete_date.isoformat() if entry.delete_date else None,
         "key_id": entry.key_id,
         "accessory_battery": entry.accessory_battery,
         "start_date": entry.start_date.isoformat() if entry.start_date else None,
         "end_date": entry.end_date.isoformat() if entry.end_date else None,
+        "media_url": media.get("media_url") if media else None,
+        "media_label": media.get("label") if media else None,
+        "media_type": media.get("content_type") if media else None,
     }
+
+
+def _history_key(entry: LogEntry) -> str:
+    """Build a stable local key for one history record."""
+    parts = [
+        str(entry.record_id or ""),
+        entry.operate_date.isoformat() if entry.operate_date else "",
+        str(entry.record_number or ""),
+        str(entry.password or ""),
+        str(entry.uid or ""),
+        str(entry.key_id or ""),
+    ]
+    return "|".join(parts)
 
 
 def _passcode_iso(value: str) -> str | None:
