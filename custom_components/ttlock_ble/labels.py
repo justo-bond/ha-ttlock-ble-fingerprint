@@ -12,6 +12,13 @@ from .const import DOMAIN
 STORAGE_KEY = f"{DOMAIN}_labels"
 STORAGE_VERSION = 1
 DATA_MANAGER = f"{DOMAIN}_labels_manager"
+DEFAULT_DATA: dict[str, dict[str, Any]] = {
+    "passcodes": {},
+    "fingerprints": {},
+    "passcode_meta": {},
+    "camera_entities": {},
+    "history_media": {},
+}
 
 
 class TtlockBleLabelsManager:
@@ -25,13 +32,15 @@ class TtlockBleLabelsManager:
         """Load labels from storage once."""
         if self._data is not None:
             return
-        self._data = await self._store.async_load() or {
-            "passcodes": {},
-            "fingerprints": {},
-            "passcode_meta": {},
-            "camera_entities": {},
-            "history_media": {},
-        }
+        stored = await self._store.async_load() or {}
+        changed = False
+        for key, default in DEFAULT_DATA.items():
+            if key not in stored or not isinstance(stored[key], dict):
+                stored[key] = dict(default)
+                changed = True
+        self._data = stored
+        if changed:
+            await self._store.async_save(self._data)
 
     def get_passcode_label(self, lock_mac: str, code: str) -> str | None:
         """Return the local label for one passcode, if set."""
